@@ -35,6 +35,7 @@
                     padding: 3px; color: #fff; }
     .thumb.uploading .badge { background: rgba(0,0,0,.65); }
     .thumb.failed .badge { background: #b00020; }
+    select.missing { border: 2px solid #b00020; background: #fff5f5; }
     #status { margin-top: 16px; font-size: 14px; white-space: pre-line; }
     .ok { color: #1a6b3c; } .err { color: #b00020; } .warn { color: #a15c00; }
   </style>
@@ -52,7 +53,7 @@
       <p><strong>Please submit ALL filled pages for <span class="custom-underline">this week</span> for <span class="custom-underline">each community</span> served by this facility.</strong></p>
     </div>
 
-    <form id="form">
+    <form id="form" novalidate>
       <label for="state">State</label>
       <select id="state" required disabled>
         <option value="">Loading...</option>
@@ -72,7 +73,7 @@
       </div>
       <!-- Camera: opens the back camera directly. Gallery: pick one or many saved photos. -->
       <input id="cameraInput" class="hiddenInput" type="file" accept="image/*" capture="environment">
-      <input id="galleryInput" class="hiddenInput" type="file" accept="image/*" multiple>
+      <input id="galleryInput" class="hiddenInput" type="file" accept="image/jpeg,image/png,image/heic,image/heif,image/webp" multiple>
 
       <button id="submitBtn" type="submit" disabled>Upload</button>
     </form>
@@ -148,7 +149,7 @@
     }
 
     function refreshButtons() {
-      submitBtn.disabled = uploading || !listLoaded || !facSel.value || photos.length === 0;
+      submitBtn.disabled = uploading || !listLoaded || photos.length === 0;
       cameraBtn.disabled = uploading;
       galleryBtn.disabled = uploading;
     }
@@ -208,6 +209,11 @@
       })
       .catch(err => setStatus('Could not load facility list: ' + (err && err.message ? err.message : err), 'err'));
 
+    function markMissing() {
+      stateSel.classList.toggle('missing', !stateSel.value);
+      facSel.classList.toggle('missing', !!stateSel.value && !facSel.value);
+    }
+
     stateSel.addEventListener('change', () => {
       const list = facilities[stateSel.value] || [];
       fillSelect(facSel, list, stateSel.value ? 'Select your facility' : 'Select a state first');
@@ -215,6 +221,10 @@
       refreshButtons();
     });
     facSel.addEventListener('change', refreshButtons);
+    [stateSel, facSel].forEach(sel => sel.addEventListener('change', () => {
+      if (sel.value) sel.classList.remove('missing');
+      if (stateSel.value && facSel.value && statusEl.dataset.missing) { setStatus(''); delete statusEl.dataset.missing; }
+    }));
 
     // Shrink photos on the phone before sending, to save mobile data.
     function compress(file) {
@@ -260,7 +270,15 @@
 
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
-      if (!facSel.value || !photos.length) return;
+      if (!photos.length) return;
+      if (!stateSel.value || !facSel.value) {
+        markMissing();
+        setStatus(!stateSel.value ? 'Please select your state before uploading.'
+                                  : 'Please select your facility before uploading.', 'err');
+        statusEl.dataset.missing = '1';
+        (!stateSel.value ? stateSel : facSel).scrollIntoView({ behavior: 'smooth', block: 'center' });
+        return;
+      }
 
       uploading = true;
       const total = photos.length;
