@@ -4,6 +4,11 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Child Immunization Register Upload</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <meta name="theme-color" content="#1a6b3c">
+  <link rel="apple-touch-icon" href="icon-192.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Register Upload">
   <style>
     body { font-family: Arial, sans-serif; margin: 0; padding: 16px; background: #f5f5f5; color: #222; }
     .card { max-width: 480px; margin: 0 auto; background: #fff; padding: 20px; border-radius: 8px; }
@@ -31,17 +36,41 @@
                   font-size: 12px; padding: 2px 6px; border-radius: 10px; }
     .thumb .remove { position: absolute; top: 4px; right: 4px; width: 28px; height: 28px; padding: 0;
                      border-radius: 50%; background: rgba(0,0,0,.65); color: #fff; font-size: 16px; line-height: 28px; }
-    .thumb .badge { position: absolute; bottom: 0; left: 0; right: 0; text-align: center; font-size: 12px;
-                    padding: 3px; color: #fff; }
-    .thumb.uploading .badge { background: rgba(0,0,0,.65); }
-    .thumb.failed .badge { background: #b00020; }
     select.missing { border: 2px solid #b00020; background: #fff5f5; }
     #status { margin-top: 16px; font-size: 14px; white-space: pre-line; }
     .ok { color: #1a6b3c; } .err { color: #b00020; } .warn { color: #a15c00; }
+
+    /* Offline and queue */
+    .banner { border-radius: 6px; padding: 10px 12px; font-size: 14px; margin: 0 0 14px; line-height: 1.4; }
+    #offlineBanner { background: #fff4e5; color: #7a4a00; border: 1px solid #f0c27a; }
+    #installBanner { background: #eef7f1; color: #1a4d2e; border: 1px solid #b7dcc4; }
+    #installBanner .row { display: flex; gap: 8px; margin-top: 8px; }
+    #installBanner button { padding: 10px; font-size: 14px; }
+    #installBtn { background: #1a6b3c; color: #fff; }
+    #installDismiss { background: #fff; color: #1a6b3c; border: 1px solid #1a6b3c; }
+    #queueBox { margin-top: 16px; border: 1px solid #ddd; border-radius: 6px; padding: 12px; font-size: 14px; line-height: 1.4; }
+    #queueBox.waiting { background: #fff8e1; border-color: #f0d27a; }
+    #queueBox.done { background: #eef7f1; border-color: #b7dcc4; }
+    #queueTitle { font-weight: bold; }
+    #queueNote { color: #555; margin-top: 4px; }
+    #sendNowBtn { margin-top: 10px; padding: 10px; font-size: 14px; background: #fff; color: #1a6b3c; border: 1px solid #1a6b3c; }
+    .hidden { display: none !important; }
   </style>
 </head>
 <body>
   <div class="card">
+    <div id="offlineBanner" class="banner hidden">
+      📶 <strong>No internet right now.</strong> You can still take photos and press Upload. They'll be saved on this phone and sent automatically when you're back online.
+    </div>
+
+    <div id="installBanner" class="banner hidden">
+      <div id="installText">Add this form to your home screen so it opens even without signal.</div>
+      <div class="row">
+        <button id="installBtn" type="button">Add to home screen</button>
+        <button id="installDismiss" type="button">Not now</button>
+      </div>
+    </div>
+
     <h1>Child Immunization Register Upload</h1>
     <div class="sub">
       <p>This form is used to collect data on children receiving immunization at the clinic. This information will be used by Evidence Action and the Government to test a reminder program to children's parents for timely follow up vaccination doses.</p>
@@ -79,35 +108,104 @@
     </form>
 
     <div id="status"></div>
+
+    <div id="queueBox" class="hidden">
+      <div id="queueTitle"></div>
+      <div id="queueNote"></div>
+      <button id="sendNowBtn" type="button" class="hidden">Try sending now</button>
+    </div>
   </div>
 
+  <script src="queue.js"></script>
   <script>
     const MAX_DIM = 1800;      // longest side in pixels; keeps text readable
     const QUALITY = 0.75;      // JPEG quality; lower = smaller upload
+    const FAC_CACHE_KEY = 'ru-facilities';
+    const LAST_KEY = 'ru-last-choice';
+    const INSTALL_KEY = 'ru-install-dismissed';
 
-    const form = document.getElementById('form');
-    const submitBtn = document.getElementById('submitBtn');
-    const cameraBtn = document.getElementById('cameraBtn');
-    const galleryBtn = document.getElementById('galleryBtn');
-    const cameraInput = document.getElementById('cameraInput');
-    const galleryInput = document.getElementById('galleryInput');
-    const grid = document.getElementById('grid');
-    const countEl = document.getElementById('count');
-    const statusEl = document.getElementById('status');
-    const stateSel = document.getElementById('state');
-    const facSel = document.getElementById('facility');
+    const $ = id => document.getElementById(id);
+    const form = $('form'), submitBtn = $('submitBtn');
+    const cameraBtn = $('cameraBtn'), galleryBtn = $('galleryBtn');
+    const cameraInput = $('cameraInput'), galleryInput = $('galleryInput');
+    const grid = $('grid'), countEl = $('count'), statusEl = $('status');
+    const stateSel = $('state'), facSel = $('facility');
+    const queueBox = $('queueBox'), queueTitle = $('queueTitle'), queueNote = $('queueNote'), sendNowBtn = $('sendNowBtn');
 
     let facilities = {};
-    let photos = [];           // [{ key, dataUrl, state: 'ready' | 'uploading' | 'failed' }]
+    let photos = [];           // photos added but not yet saved: [{ key, dataUrl }]
     let nextKey = 1;
     let listLoaded = false;
-    let uploading = false;
+    let saving = false;
+    let sending = false;
+    let lastResult = null;
+
+    // Small, non-sensitive conveniences (facility list, last choice) kept in browser storage.
+    function store(key, val) { try { localStorage.setItem(key, JSON.stringify(val)); } catch (e) {} }
+    function load(key) { try { return JSON.parse(localStorage.getItem(key)); } catch (e) { return null; } }
 
     function setStatus(msg, cls) {
       statusEl.className = cls || '';
       statusEl.textContent = msg;
     }
 
+    function newId() {
+      return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+    }
+
+    // ---------- Background worker (offline support) ----------
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('sw.js').catch(() => {});
+    }
+    if (navigator.storage && navigator.storage.persist) {
+      navigator.storage.persist().catch(() => {});   // asks the phone not to clear saved photos
+    }
+    function requestBackgroundSend() {
+      if (!('serviceWorker' in navigator)) return;
+      navigator.serviceWorker.ready
+        .then(reg => reg.sync && reg.sync.register('send-queue'))
+        .catch(() => {});
+    }
+
+    // ---------- Online / offline banner ----------
+    function updateOnline() {
+      $('offlineBanner').classList.toggle('hidden', navigator.onLine);
+    }
+    window.addEventListener('online', () => { updateOnline(); loadFacilities(); trySend(); });
+    window.addEventListener('offline', () => { updateOnline(); updateQueueUI(); });
+    updateOnline();
+
+    // ---------- Add to home screen ----------
+    let installPrompt = null;
+    const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
+    const isStandalone = window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+    function showInstall(text, withButton) {
+      if (isStandalone || load(INSTALL_KEY)) return;
+      $('installText').textContent = text;
+      $('installBtn').classList.toggle('hidden', !withButton);
+      $('installBanner').classList.remove('hidden');
+    }
+    window.addEventListener('beforeinstallprompt', e => {
+      e.preventDefault();
+      installPrompt = e;
+      showInstall('Add this form to your home screen so it opens even without signal.', true);
+    });
+    $('installBtn').addEventListener('click', async () => {
+      if (!installPrompt) return;
+      installPrompt.prompt();
+      await installPrompt.userChoice.catch(() => {});
+      installPrompt = null;
+      $('installBanner').classList.add('hidden');
+    });
+    $('installDismiss').addEventListener('click', () => {
+      store(INSTALL_KEY, true);
+      $('installBanner').classList.add('hidden');
+    });
+    if (isIOS) {
+      showInstall('To open this form without signal: tap the Share button (square with an arrow), then "Add to Home Screen".', false);
+    }
+
+    // ---------- State and facility dropdowns ----------
     function fillSelect(sel, items, placeholder) {
       sel.innerHTML = '';
       const first = document.createElement('option');
@@ -116,117 +214,111 @@
       sel.appendChild(first);
       items.forEach(item => {
         const opt = document.createElement('option');
-        // Items are either plain strings (states) or {id, name} (facilities).
         opt.value = typeof item === 'string' ? item : item.id;
         opt.textContent = typeof item === 'string' ? item : item.name;
         sel.appendChild(opt);
       });
     }
 
-    // Plain web requests to the script's /exec URL (see doPost in Code.gs).
-    // Sent as text/plain with no cookies, so multiple Google accounts on the phone don't matter.
-    // Your Apps Script web app link. If you ever redeploy as a NEW deployment, update this.
-    const API_URL = 'https://script.google.com/macros/s/AKfycbz-BAfsMYBOLqtTfm-Lk8L_n7Rzfms7CE7Q7Zy0x2FEozYuyCelADAMhFeZyxWYNlQHxA/exec';
+    function applyFacilities(map) {
+      const prevState = stateSel.value, prevFac = facSel.value;
+      facilities = map;
+      if (!Object.keys(map).length) {
+        fillSelect(stateSel, [], 'No facilities found');
+        setStatus('The facility list is empty. Please contact the program team.', 'err');
+        return;
+      }
+      fillSelect(stateSel, Object.keys(map).sort(), 'Select your state');
+      stateSel.disabled = false;
+      listLoaded = true;
 
-    async function api(body) {
-      const res = await fetch(API_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify(body),
-        credentials: 'omit',
-        redirect: 'follow'
-      });
-      if (!res.ok) throw new Error('Network error (' + res.status + ')');
-      const out = await res.json();
-      if (!out.ok) throw new Error(out.error || 'Server error');
-      return out.data;
-    }
-
-    function callServer(fn, ...args) {
-      if (fn === 'getFacilities') return api({ action: 'getFacilities' });
-      if (fn === 'uploadPhoto') return api({ action: 'uploadPhoto', meta: args[0], dataUrl: args[1], index: args[2] });
-      return Promise.reject(new Error('Unknown call'));
-    }
-
-    function refreshButtons() {
-      submitBtn.disabled = uploading || !listLoaded || photos.length === 0;
-      cameraBtn.disabled = uploading;
-      galleryBtn.disabled = uploading;
-    }
-
-    function render() {
-      grid.innerHTML = '';
-      photos.forEach((p, i) => {
-        const div = document.createElement('div');
-        div.className = 'thumb ' + p.state;
-
-        const img = document.createElement('img');
-        img.src = p.dataUrl;
-        div.appendChild(img);
-
-        const num = document.createElement('span');
-        num.className = 'num';
-        num.textContent = i + 1;
-        div.appendChild(num);
-
-        if (!uploading) {
-          const rm = document.createElement('button');
-          rm.type = 'button';
-          rm.className = 'remove';
-          rm.textContent = '×';
-          rm.setAttribute('aria-label', 'Remove photo ' + (i + 1));
-          rm.onclick = () => { photos = photos.filter(x => x.key !== p.key); render(); };
-          div.appendChild(rm);
-        }
-
-        if (p.state === 'uploading' || p.state === 'failed') {
-          const badge = document.createElement('div');
-          badge.className = 'badge';
-          badge.textContent = p.state === 'uploading' ? 'Uploading...' : 'Failed';
-          div.appendChild(badge);
-        }
-        grid.appendChild(div);
-      });
-
-      const n = photos.length;
-      countEl.textContent = n === 1 ? '1 photo added' : `${n} photos added`;
+      // Restore what was picked before (or last time on this phone).
+      const last = load(LAST_KEY) || {};
+      const wantState = prevState || last.state;
+      const wantFac = prevFac || last.facilityId;
+      if (wantState && map[wantState]) {
+        stateSel.value = wantState;
+        onStateChange();
+        if (wantFac && map[wantState].some(f => f.id === wantFac)) facSel.value = wantFac;
+      }
       refreshButtons();
     }
 
-    // Load the state/facility list when the page opens.
-    callServer('getFacilities')
-      .then(map => {
-        facilities = map;
-        if (!Object.keys(map).length) {
-          fillSelect(stateSel, [], 'No facilities found');
-          setStatus('The facility list is empty. Please contact the program team.', 'err');
-          return;
+    function loadFacilities() {
+      const cached = load(FAC_CACHE_KEY);
+      if (cached && !listLoaded) applyFacilities(cached);   // works offline
+      if (!navigator.onLine) {
+        if (!cached) {
+          fillSelect(stateSel, [], 'No internet');
+          setStatus('Please connect to the internet once so the facility list can load. After that, the form works without signal.', 'err');
         }
-        fillSelect(stateSel, Object.keys(map).sort(), 'Select your state');
-        stateSel.disabled = false;
-        listLoaded = true;
-        refreshButtons();
-      })
-      .catch(err => setStatus('Could not load facility list: ' + (err && err.message ? err.message : err), 'err'));
+        return;
+      }
+      RU.api({ action: 'getFacilities' })
+        .then(map => { store(FAC_CACHE_KEY, map); applyFacilities(map); if (statusEl.dataset.list) { setStatus(''); delete statusEl.dataset.list; } })
+        .catch(err => {
+          if (!cached) {
+            setStatus('Could not load facility list: ' + (err && err.message ? err.message : err), 'err');
+            statusEl.dataset.list = '1';
+          }
+        });
+    }
+
+    function onStateChange() {
+      const list = facilities[stateSel.value] || [];
+      fillSelect(facSel, list, stateSel.value ? 'Select your facility' : 'Select a state first');
+      facSel.disabled = !stateSel.value;
+    }
 
     function markMissing() {
       stateSel.classList.toggle('missing', !stateSel.value);
       facSel.classList.toggle('missing', !!stateSel.value && !facSel.value);
     }
 
-    stateSel.addEventListener('change', () => {
-      const list = facilities[stateSel.value] || [];
-      fillSelect(facSel, list, stateSel.value ? 'Select your facility' : 'Select a state first');
-      facSel.disabled = !stateSel.value;
-      refreshButtons();
-    });
+    stateSel.addEventListener('change', () => { onStateChange(); refreshButtons(); });
     facSel.addEventListener('change', refreshButtons);
     [stateSel, facSel].forEach(sel => sel.addEventListener('change', () => {
       if (sel.value) sel.classList.remove('missing');
-      if (stateSel.value && facSel.value && statusEl.dataset.missing) { setStatus(''); delete statusEl.dataset.missing; }
+      if (stateSel.value && facSel.value) {
+        store(LAST_KEY, { state: stateSel.value, facilityId: facSel.value });
+        if (statusEl.dataset.missing) { setStatus(''); delete statusEl.dataset.missing; }
+      }
     }));
 
-    // Shrink photos on the phone before sending, to save mobile data.
+    // ---------- Photos being added ----------
+    function refreshButtons() {
+      submitBtn.disabled = saving || !listLoaded || photos.length === 0;
+      cameraBtn.disabled = saving;
+      galleryBtn.disabled = saving;
+    }
+
+    function render() {
+      grid.innerHTML = '';
+      photos.forEach((p, i) => {
+        const div = document.createElement('div');
+        div.className = 'thumb';
+        const img = document.createElement('img');
+        img.src = p.dataUrl;
+        div.appendChild(img);
+        const num = document.createElement('span');
+        num.className = 'num';
+        num.textContent = i + 1;
+        div.appendChild(num);
+        const rm = document.createElement('button');
+        rm.type = 'button';
+        rm.className = 'remove';
+        rm.textContent = '×';
+        rm.setAttribute('aria-label', 'Remove photo ' + (i + 1));
+        rm.onclick = () => { photos = photos.filter(x => x.key !== p.key); render(); };
+        div.appendChild(rm);
+        grid.appendChild(div);
+      });
+      const n = photos.length;
+      countEl.textContent = n === 1 ? '1 photo added' : `${n} photos added`;
+      refreshButtons();
+    }
+
+    // Shrink photos on the phone before saving, to save storage and mobile data.
     function compress(file) {
       return new Promise((resolve, reject) => {
         const img = new Image();
@@ -245,7 +337,6 @@
       });
     }
 
-    // Each photo adds to the list instead of replacing it.
     cameraBtn.addEventListener('click', () => cameraInput.click());
     galleryBtn.addEventListener('click', () => galleryInput.click());
     cameraInput.addEventListener('change', () => addFiles(cameraInput));
@@ -253,22 +344,27 @@
 
     async function addFiles(input) {
       const files = Array.from(input.files);
-      input.value = '';        // allows picking the same photo again if needed
+      input.value = '';
       if (!files.length) return;
       cameraBtn.disabled = true;
       galleryBtn.disabled = true;
       setStatus('Preparing photo...');
       let bad = 0;
       for (const f of files) {
-        try {
-          photos.push({ key: nextKey++, dataUrl: await compress(f), state: 'ready' });
-        } catch (e) { bad++; }
+        try { photos.push({ key: nextKey++, dataUrl: await compress(f) }); }
+        catch (e) { bad++; }
       }
       setStatus(bad ? `${bad} photo(s) could not be read. Please try again.` : '', bad ? 'err' : '');
       render();
     }
 
-    form.addEventListener('submit', async (e) => {
+    // Warn before leaving if photos were added but Upload wasn't pressed.
+    window.addEventListener('beforeunload', e => {
+      if (photos.length) { e.preventDefault(); e.returnValue = ''; }
+    });
+
+    // ---------- Upload: save on phone first, then send ----------
+    form.addEventListener('submit', async e => {
       e.preventDefault();
       if (!photos.length) return;
       if (!stateSel.value || !facSel.value) {
@@ -280,37 +376,109 @@
         return;
       }
 
-      uploading = true;
-      const total = photos.length;
-      const meta = { facilityId: facSel.value };
-      let done = 0;
-
-      for (const p of photos) {
-        p.state = 'uploading';
-        render();
-        setStatus(`Uploading photo ${done + 1} of ${total}...`);
-        try {
-          await callServer('uploadPhoto', meta, p.dataUrl, p.key);
-          p.state = 'done';
-          done++;
-        } catch (err) {
-          p.state = 'failed';
-        }
+      saving = true;
+      refreshButtons();
+      const now = Date.now();
+      const items = photos.map((p, i) => ({
+        uploadId: newId(),
+        facilityId: facSel.value,
+        seq: i + 1,
+        queuedAt: now + i,      // keeps order; also used for the file name
+        dataUrl: p.dataUrl
+      }));
+      try {
+        await RU.qPut(items);
+      } catch (err) {
+        saving = false;
+        refreshButtons();
+        setStatus('Could not save photos on this phone. The phone may be out of storage space.', 'err');
+        return;
       }
-
-      // Keep only failed photos (still marked "Failed") so they can be retried.
-      photos = photos.filter(p => p.state !== 'done');
-      uploading = false;
+      photos = [];
+      saving = false;
       render();
-
-      if (photos.length) {
-        setStatus(`${done} uploaded. ${photos.length} failed and are still below. Press Upload to try again.`, 'err');
-      } else {
-        setStatus(`Done! ${done} photo(s) uploaded. Thank you.`, 'ok');
-      }
+      setStatus(`${items.length} photo(s) saved on this phone.`, 'ok');
+      requestBackgroundSend();
+      trySend();
     });
 
+    // ---------- Sending waiting photos ----------
+    async function trySend() {
+      await updateQueueUI();
+      if (sending || !navigator.onLine) return;
+      const waiting = (await RU.qAll()).length;
+      if (!waiting) return;
+      sending = true;
+      updateQueueUI();
+      try {
+        const r = await RU.sendQueue((done, total) => {
+          queueTitle.textContent = `⏫ Sending photo ${done + 1 > total ? total : done + 1} of ${total}...`;
+        });
+        if (r) lastResult = r;
+      } catch (e) {
+        lastResult = { error: e.message };
+      }
+      sending = false;
+      if (lastResult && lastResult.sent && !lastResult.remaining) {
+        setStatus(`Done! ${lastResult.sent} photo(s) sent. Thank you.`, 'ok');
+      }
+      updateQueueUI();
+    }
+
+    async function updateQueueUI() {
+      let items = [];
+      try { items = await RU.qAll(); } catch (e) {}
+      const n = items.length;
+      if (!n) {
+        if (lastResult && lastResult.sent) {
+          queueBox.className = 'done';
+          queueTitle.textContent = '✅ All photos sent';
+          queueNote.textContent = '';
+        } else {
+          queueBox.className = 'hidden';
+        }
+        sendNowBtn.classList.add('hidden');
+        return;
+      }
+      queueBox.className = 'waiting';
+      if (sending) {
+        queueNote.textContent = 'Please keep this page open until sending finishes.';
+        sendNowBtn.classList.add('hidden');
+        return;
+      }
+      const rejected = items.filter(i => i.error);
+      queueTitle.textContent = `⏳ ${n} photo${n === 1 ? '' : 's'} waiting to send`;
+      let note;
+      if (!navigator.onLine) {
+        note = "No internet. They'll send automatically when you're back online.";
+      } else if (lastResult && lastResult.error) {
+        note = "Weak or no signal. We'll keep trying. You can also press the button below.";
+      } else {
+        note = 'Sending will start shortly.';
+      }
+      if (rejected.length) {
+        note += `\n${rejected.length} photo(s) were not accepted (${rejected[0].error}). Please contact the program team.`;
+      }
+      const oldest = Math.min(...items.map(i => i.queuedAt));
+      const daysLeft = Math.max(0, Math.ceil((oldest + RU.MAX_AGE_DAYS * 864e5 - Date.now()) / 864e5));
+      note += `\nPhotos not sent within ${RU.MAX_AGE_DAYS} days are deleted from this phone (${daysLeft} day${daysLeft === 1 ? '' : 's'} left for the oldest).`;
+      queueNote.style.whiteSpace = 'pre-line';
+      queueNote.textContent = note;
+      sendNowBtn.classList.toggle('hidden', !navigator.onLine);
+    }
+
+    sendNowBtn.addEventListener('click', trySend);
+
+    // Keep trying while the page is open.
+    setInterval(() => { if (!sending) trySend(); }, 30000);
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) trySend(); });
+
+    // ---------- Start ----------
     render();
+    loadFacilities();
+    RU.purgeOld().then(n => {
+      if (n) setStatus(`${n} photo(s) waited more than ${RU.MAX_AGE_DAYS} days without sending and were deleted from this phone. Please take them again.`, 'warn');
+    }).catch(() => {}).then(trySend);
   </script>
 </body>
 </html>
