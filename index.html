@@ -12,15 +12,17 @@
     .sub p { margin: 0 0 10px; }
     .sub ol { margin: 0 0 10px; padding-left: 20px; }
     .sub li { margin-bottom: 6px; }
+    .custom-underline { text-decoration: underline; text-underline-offset: 2px; }
     label { display: block; font-weight: bold; margin: 14px 0 4px; font-size: 14px; }
     select { width: 100%; box-sizing: border-box; padding: 10px; font-size: 16px;
              border: 1px solid #bbb; border-radius: 6px; background: #fff; }
     button { width: 100%; padding: 14px; font-size: 16px; font-weight: bold;
              border: none; border-radius: 6px; }
     #submitBtn { margin-top: 20px; background: #1a6b3c; color: #fff; }
-    #addBtn { background: #fff; color: #1a6b3c; border: 2px dashed #1a6b3c; }
+    .addRow { display: flex; gap: 8px; }
+    .addRow button { flex: 1; background: #fff; color: #1a6b3c; border: 2px dashed #1a6b3c; padding: 14px 8px; }
     button:disabled { background: #999 !important; color: #fff !important; border-color: #999 !important; }
-    #fileInput { display: none; }
+    .hiddenInput { display: none; }
     #count { margin: 8px 0; font-size: 14px; font-weight: bold; }
     .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 8px 0 12px; }
     .thumb { position: relative; aspect-ratio: 3 / 4; border-radius: 6px; overflow: hidden; background: #eee; }
@@ -64,8 +66,13 @@
       <label>Photos</label>
       <div id="count">0 photos added</div>
       <div id="grid" class="grid"></div>
-      <button id="addBtn" type="button">+ Add photo</button>
-      <input id="fileInput" type="file" accept="image/*" multiple>
+      <div class="addRow">
+        <button id="cameraBtn" type="button">📷 Take photo</button>
+        <button id="galleryBtn" type="button">🖼 Choose from gallery</button>
+      </div>
+      <!-- Camera: opens the back camera directly. Gallery: pick one or many saved photos. -->
+      <input id="cameraInput" class="hiddenInput" type="file" accept="image/*" capture="environment">
+      <input id="galleryInput" class="hiddenInput" type="file" accept="image/*" multiple>
 
       <button id="submitBtn" type="submit" disabled>Upload</button>
     </form>
@@ -79,8 +86,10 @@
 
     const form = document.getElementById('form');
     const submitBtn = document.getElementById('submitBtn');
-    const addBtn = document.getElementById('addBtn');
-    const fileInput = document.getElementById('fileInput');
+    const cameraBtn = document.getElementById('cameraBtn');
+    const galleryBtn = document.getElementById('galleryBtn');
+    const cameraInput = document.getElementById('cameraInput');
+    const galleryInput = document.getElementById('galleryInput');
     const grid = document.getElementById('grid');
     const countEl = document.getElementById('count');
     const statusEl = document.getElementById('status');
@@ -140,7 +149,8 @@
 
     function refreshButtons() {
       submitBtn.disabled = uploading || !listLoaded || !facSel.value || photos.length === 0;
-      addBtn.disabled = uploading;
+      cameraBtn.disabled = uploading;
+      galleryBtn.disabled = uploading;
     }
 
     function render() {
@@ -179,7 +189,6 @@
 
       const n = photos.length;
       countEl.textContent = n === 1 ? '1 photo added' : `${n} photos added`;
-      addBtn.textContent = n === 0 ? '+ Add photo' : '+ Add another photo';
       refreshButtons();
     }
 
@@ -226,13 +235,18 @@
       });
     }
 
-    // Each tap adds to the list instead of replacing it.
-    addBtn.addEventListener('click', () => fileInput.click());
-    fileInput.addEventListener('change', async () => {
-      const files = Array.from(fileInput.files);
-      fileInput.value = '';    // allows picking the same photo again if needed
+    // Each photo adds to the list instead of replacing it.
+    cameraBtn.addEventListener('click', () => cameraInput.click());
+    galleryBtn.addEventListener('click', () => galleryInput.click());
+    cameraInput.addEventListener('change', () => addFiles(cameraInput));
+    galleryInput.addEventListener('change', () => addFiles(galleryInput));
+
+    async function addFiles(input) {
+      const files = Array.from(input.files);
+      input.value = '';        // allows picking the same photo again if needed
       if (!files.length) return;
-      addBtn.disabled = true;
+      cameraBtn.disabled = true;
+      galleryBtn.disabled = true;
       setStatus('Preparing photo...');
       let bad = 0;
       for (const f of files) {
@@ -242,7 +256,7 @@
       }
       setStatus(bad ? `${bad} photo(s) could not be read. Please try again.` : '', bad ? 'err' : '');
       render();
-    });
+    }
 
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
