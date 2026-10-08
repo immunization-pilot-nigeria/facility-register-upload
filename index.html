@@ -4,6 +4,29 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Child Immunization Register Upload</title>
+  <script>
+    // Android: send anything that isn't Chrome (or Samsung Internet / Edge) to Chrome,
+    // because offline use and Add to home screen need a full browser.
+    (function () {
+      var ua = navigator.userAgent || '';
+      if (!/Android/i.test(ua)) return;
+      var ok = /Chrome\/\d+/.test(ua) && !/; wv\)/.test(ua) &&
+        !/OPR\/|Opera|OPT\/|UCBrowser|UCWEB|Phoenix|PHX\/|Firefox|YaBrowser|MiuiBrowser|HeyTapBrowser|Instagram|FBAN|FBAV|WhatsApp/i.test(ua);
+      if (ok) return;
+      window.RU_NEEDS_CHROME = true;
+      var clean = location.href.replace(/([?&])nochrome=1&?/, '$1').replace(/[?&]$/, '');
+      var fallback = clean + (clean.indexOf('?') >= 0 ? '&' : '?') + 'nochrome=1';
+      window.RU_CHROME_URL = 'intent://' + location.host + location.pathname + location.search +
+        '#Intent;scheme=https;package=com.android.chrome;S.browser_fallback_url=' +
+        encodeURIComponent(fallback) + ';end';
+      window.RU_NO_CHROME = /[?&]nochrome=1/.test(location.search);
+      if (window.RU_NO_CHROME) return;            // Chrome isn't installed: don't loop
+      var tried = null;
+      try { tried = sessionStorage.getItem('ru-chrome-tried'); sessionStorage.setItem('ru-chrome-tried', '1'); } catch (e) {}
+      if (tried) return;                          // tried once already: show the button instead
+      location.href = window.RU_CHROME_URL;
+    })();
+  </script>
   <link rel="manifest" href="manifest.webmanifest">
   <meta name="theme-color" content="#1a6b3c">
   <link rel="apple-touch-icon" href="icon-192.png">
@@ -43,6 +66,10 @@
     /* Offline and queue */
     .banner { border-radius: 6px; padding: 10px 12px; font-size: 14px; margin: 0 0 14px; line-height: 1.4; }
     #offlineBanner { background: #fff4e5; color: #7a4a00; border: 1px solid #f0c27a; }
+    #chromeBanner { background: #e8f0fe; color: #1a3a6b; border: 2px solid #8ab4f8; }
+    #chromeBanner button { margin-top: 10px; padding: 12px; font-size: 15px; }
+    #openChromeBtn { background: #1a73e8; color: #fff; }
+    #stayHereBtn { background: transparent; color: #1a3a6b; font-weight: normal; text-decoration: underline; padding: 8px; }
     #installBanner { background: #eef7f1; color: #1a4d2e; border: 1px solid #b7dcc4; }
     #installBanner .row { display: flex; gap: 8px; margin-top: 8px; }
     #installBanner button { padding: 10px; font-size: 14px; }
@@ -73,6 +100,12 @@
 </head>
 <body>
   <div class="card">
+    <div id="chromeBanner" class="banner hidden">
+      <div id="chromeText"><strong>Please open this form in Chrome.</strong> It needs Chrome to work without signal and to add to your home screen.</div>
+      <button id="openChromeBtn" type="button">Open in Chrome</button>
+      <button id="stayHereBtn" type="button">Continue here anyway</button>
+    </div>
+
     <div id="offlineBanner" class="banner hidden">
       📶 <strong>No internet right now.</strong> You can still take photos and press Upload. They'll be saved on this phone and sent automatically when you're back online.
     </div>
@@ -205,12 +238,24 @@
     window.addEventListener('offline', () => { updateOnline(); updateQueueUI(); });
     updateOnline();
 
+    // ---------- Not in Chrome (Android) ----------
+    if (window.RU_NEEDS_CHROME) {
+      if (window.RU_NO_CHROME) {
+        $('chromeText').innerHTML = '<strong>Google Chrome is needed</strong> for this form to work without signal. ' +
+          'Please install <strong>Google Chrome</strong> from the Play Store, then open the link again. ' +
+          'You can continue here for now while you have signal.';
+      }
+      setTimeout(() => $('chromeBanner').classList.remove('hidden'), 800);
+      $('openChromeBtn').addEventListener('click', () => { location.href = window.RU_CHROME_URL; });
+      $('stayHereBtn').addEventListener('click', () => $('chromeBanner').classList.add('hidden'));
+    }
+
     // ---------- Add to home screen ----------
     let installPrompt = null;
     const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
     const isStandalone = window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
     function showInstall(text, withButton) {
-      if (isStandalone || load(INSTALL_KEY)) return;
+      if (isStandalone || load(INSTALL_KEY) || window.RU_NEEDS_CHROME) return;
       $('installText').textContent = text;
       $('installBtn').classList.toggle('hidden', !withButton);
       $('installBanner').classList.remove('hidden');
