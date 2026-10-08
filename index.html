@@ -55,6 +55,20 @@
     #queueNote { color: #555; margin-top: 4px; }
     #sendNowBtn { margin-top: 10px; padding: 10px; font-size: 14px; background: #fff; color: #1a6b3c; border: 1px solid #1a6b3c; }
     .hidden { display: none !important; }
+
+    /* In-form camera: photos stay inside the form, never in the phone's gallery */
+    #camOverlay { position: fixed; inset: 0; z-index: 1000; background: #000; display: flex; flex-direction: column; }
+    #camHint { color: #fff; font-size: 14px; text-align: center; padding: 12px 16px 8px; }
+    #camStage { position: relative; flex: 1; min-height: 0; }
+    #camVideo { width: 100%; height: 100%; object-fit: contain; background: #000; display: block; }
+    #camFlash { position: absolute; inset: 0; background: #fff; opacity: 0; pointer-events: none; transition: opacity .2s; }
+    #camCount { color: #fff; font-size: 14px; text-align: center; padding: 8px 16px; min-height: 18px; }
+    .camBar { display: flex; align-items: center; justify-content: space-between; padding: 8px 20px 24px; }
+    .camBar .side { width: 90px; }
+    #camDone { width: 90px; padding: 10px; font-size: 15px; background: #1a6b3c; color: #fff; }
+    #shutterBtn { width: 76px; height: 76px; padding: 0; border-radius: 50%; background: #fff; border: 6px solid #9fd3b2; }
+    #shutterBtn:active { background: #ddd; }
+    #nativeCamBtn { margin-top: 8px; padding: 10px; font-size: 14px; background: #fff; color: #1a6b3c; border: 1px solid #1a6b3c; }
   </style>
 </head>
 <body>
@@ -79,7 +93,7 @@
         <li>One photo of the left side of the page where the child's name, phone number, and date of birth is clearly readable.</li>
         <li>Then, take another photo of the same page, including both the left and right hand sides of the page displaying all vaccination columns.</li>
       </ol>
-      <p><strong>Please submit ALL filled pages for <span class="custom-underline">this week</span> for <span class="custom-underline">each community</span> served by this facility.</strong> Please check that the pages are readable and legible before upload.</p>
+      <p><strong>Please submit ALL filled pages for <span class="custom-underline">this week</span> for <span class="custom-underline">each community</span> served by this facility.</strong></p>
     </div>
 
     <form id="form" novalidate>
@@ -100,7 +114,9 @@
         <button id="cameraBtn" type="button">📷 Take photo</button>
         <button id="galleryBtn" type="button">🖼 Choose from gallery</button>
       </div>
-      <!-- Camera: opens the back camera directly. Gallery: pick one or many saved photos. -->
+      <button id="nativeCamBtn" type="button" class="hidden">Use the phone's camera app instead</button>
+      <!-- Take photo uses a camera built into the form (nothing saved to the gallery).
+           cameraInput is the fallback: the phone's own camera app. Gallery: pick saved photos. -->
       <input id="cameraInput" class="hiddenInput" type="file" accept="image/*" capture="environment">
       <input id="galleryInput" class="hiddenInput" type="file" accept="image/jpeg,image/png,image/heic,image/heif,image/webp" multiple>
 
@@ -113,6 +129,20 @@
       <div id="queueTitle"></div>
       <div id="queueNote"></div>
       <button id="sendNowBtn" type="button" class="hidden">Try sending now</button>
+    </div>
+  </div>
+
+  <div id="camOverlay" class="hidden" role="dialog" aria-label="Camera">
+    <div id="camHint">Hold the phone straight above the register page</div>
+    <div id="camStage">
+      <video id="camVideo" playsinline muted autoplay></video>
+      <div id="camFlash"></div>
+    </div>
+    <div id="camCount"></div>
+    <div class="camBar">
+      <span class="side"></span>
+      <button id="shutterBtn" type="button" aria-label="Take photo"></button>
+      <button id="camDone" type="button">Done</button>
     </div>
   </div>
 
@@ -337,7 +367,71 @@
       });
     }
 
-    cameraBtn.addEventListener('click', () => cameraInput.click());
+    // ---------- In-form camera ----------
+    // Photos are taken inside the form and kept in the form's own memory, so they never
+    // go to the phone's gallery and work even when the phone's storage is full.
+    const camOverlay = $('camOverlay'), camVideo = $('camVideo'), camFlash = $('camFlash');
+    const camCount = $('camCount'), shutterBtn = $('shutterBtn'), camDone = $('camDone');
+    const nativeCamBtn = $('nativeCamBtn');
+    let camStream = null, camTaken = 0;
+
+    async function openCamera() {
+      if (!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia)) {
+        return cameraInput.click();   // very old phone or in-app browser: use the camera app
+      }
+      try {
+        camStream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: { ideal: 'environment' }, width: { ideal: 2560 }, height: { ideal: 1920 } },
+          audio: false
+        });
+      } catch (err) {
+        const denied = err && (err.name === 'NotAllowedError' || err.name === 'SecurityError');
+        setStatus(denied
+          ? 'The form needs permission to use the camera. Tap the lock icon next to the web address, allow Camera, then try again. Or use the button below.'
+          : 'The camera could not open inside the form. Use the button below instead.', 'warn');
+        nativeCamBtn.classList.remove('hidden');
+        return;
+      }
+      camVideo.srcObject = camStream;
+      camTaken = 0;
+      camCount.textContent = 'Tap the white button to take a photo.';
+      camOverlay.classList.remove('hidden');
+      document.body.style.overflow = 'hidden';
+      try { history.pushState({ cam: 1 }, ''); } catch (e) {}
+      camVideo.play().catch(() => {});
+    }
+
+    function closeCamera(fromBack) {
+      if (camStream) camStream.getTracks().forEach(t => t.stop());
+      camStream = null;
+      camVideo.srcObject = null;
+      camOverlay.classList.add('hidden');
+      document.body.style.overflow = '';
+      if (!fromBack && history.state && history.state.cam) { try { history.back(); } catch (e) {} }
+      if (camTaken) setStatus(`${camTaken} photo(s) added. Press Upload when you have all your photos.`, 'ok');
+      render();
+    }
+
+    shutterBtn.addEventListener('click', () => {
+      const w = camVideo.videoWidth, h = camVideo.videoHeight;
+      if (!w || !h) return;   // camera still starting
+      const scale = Math.min(1, MAX_DIM / Math.max(w, h));
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.round(w * scale);
+      canvas.height = Math.round(h * scale);
+      canvas.getContext('2d').drawImage(camVideo, 0, 0, canvas.width, canvas.height);
+      photos.push({ key: nextKey++, dataUrl: canvas.toDataURL('image/jpeg', QUALITY) });
+      camTaken++;
+      camFlash.style.opacity = '0.8';
+      setTimeout(() => { camFlash.style.opacity = '0'; }, 120);
+      camCount.textContent = `${camTaken} photo${camTaken === 1 ? '' : 's'} taken. Take the next one, or tap Done.`;
+    });
+    camDone.addEventListener('click', () => closeCamera(false));
+    // Android back button closes the camera instead of leaving the form.
+    window.addEventListener('popstate', () => { if (camStream) closeCamera(true); });
+
+    cameraBtn.addEventListener('click', openCamera);
+    nativeCamBtn.addEventListener('click', () => cameraInput.click());
     galleryBtn.addEventListener('click', () => galleryInput.click());
     cameraInput.addEventListener('change', () => addFiles(cameraInput));
     galleryInput.addEventListener('change', () => addFiles(galleryInput));
@@ -389,9 +483,14 @@
       try {
         await RU.qPut(items);
       } catch (err) {
-        saving = false;
-        refreshButtons();
-        setStatus('Could not save photos on this phone. The phone may be out of storage space.', 'err');
+        // Phone storage full: can't keep a copy, so send straight away if there's signal.
+        if (navigator.onLine) {
+          await sendDirect(items);
+        } else {
+          saving = false;
+          refreshButtons();
+          setStatus('This phone is out of storage space, so photos can\'t be saved for later. Please press Upload again when you have signal, and keep this page open.', 'err');
+        }
         return;
       }
       photos = [];
@@ -401,6 +500,33 @@
       requestBackgroundSend();
       trySend();
     });
+
+    // Used only when the phone has no space to save photos: send from memory, keep any that fail.
+    async function sendDirect(items) {
+      let sent = 0;
+      for (let i = 0; i < items.length; i++) {
+        setStatus(`Phone storage is full, sending directly. Photo ${i + 1} of ${items.length}...`);
+        try {
+          await RU.api({
+            action: 'uploadPhoto',
+            meta: { facilityId: items[i].facilityId, uploadId: items[i].uploadId, queuedAt: items[i].queuedAt },
+            dataUrl: items[i].dataUrl,
+            index: items[i].seq
+          });
+          sent++;
+        } catch (e) {
+          break;
+        }
+      }
+      photos = photos.slice(sent);   // keep the ones that didn't send, in order
+      saving = false;
+      render();
+      if (photos.length) {
+        setStatus(`${sent} sent. ${photos.length} not sent yet because of weak signal. Keep this page open and press Upload again.`, 'err');
+      } else {
+        setStatus(`Done! ${sent} photo(s) sent. Thank you.`, 'ok');
+      }
+    }
 
     // ---------- Sending waiting photos ----------
     async function trySend() {
