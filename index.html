@@ -59,7 +59,21 @@
                   font-size: 12px; padding: 2px 6px; border-radius: 10px; }
     .thumb .remove { position: absolute; top: 4px; right: 4px; width: 28px; height: 28px; padding: 0;
                      border-radius: 50%; background: rgba(0,0,0,.65); color: #fff; font-size: 16px; line-height: 28px; }
-    select.missing { border: 2px solid #b00020; background: #fff5f5; }
+    input[type=tel] { width: 100%; box-sizing: border-box; padding: 10px; font-size: 16px;
+                      border: 1px solid #bbb; border-radius: 6px; background: #fff; }
+    .hint { font-size: 13px; color: #555; margin-top: 4px; }
+    /* Upload type: two big buttons, picked once per batch, never remembered */
+    .typePick { display: flex; gap: 8px; border-radius: 8px; }
+    .typePick button { flex: 1; padding: 12px 8px; font-size: 15px; background: #fff; color: #444;
+                       border: 2px solid #bbb; border-radius: 8px; }
+    .typePick button[aria-pressed="true"] { border-color: #1a6b3c; background: #eef7f1; color: #1a4d2e; }
+    .instr { margin: 10px 0 0; padding: 10px 12px; border-radius: 6px; font-size: 14px; line-height: 1.45;
+             background: #eef7f1; border: 1px solid #b7dcc4; color: #1a4d2e; }
+    .instr p { margin: 0 0 8px; } .instr p:last-child { margin-bottom: 0; }
+    .instr ol { margin: 0 0 8px; padding-left: 20px; } .instr li { margin-bottom: 6px; }
+    #instrNone { background: #f5f5f5; border-color: #ddd; color: #555; }
+    select.missing, input.missing { border: 2px solid #b00020; background: #fff5f5; }
+    .typePick.missing { outline: 2px solid #b00020; outline-offset: 3px; }
     #status { margin-top: 16px; font-size: 14px; white-space: pre-line; }
     .ok { color: #1a6b3c; } .err { color: #b00020; } .warn { color: #a15c00; }
 
@@ -118,18 +132,32 @@
       </div>
     </div>
 
-    <h1>Child Immunization Register Upload</h1>
-    <div class="sub">
-      <p>This form is used to collect data on children receiving immunization at the clinic. This information will be used by Evidence Action and the Government to test a reminder program to children's parents for timely follow up vaccination doses.</p>
-      <p><strong>Take two photos of each page from straight above.</strong></p>
-      <ol>
-        <li>One photo of the left side of the page where the child's name, phone number, and date of birth is clearly readable.</li>
-        <li>Then, take another photo of the same page, including both the left and right hand sides of the page displaying all vaccination columns.</li>
-      </ol>
-      <p><strong>Please submit ALL filled pages for <span class="custom-underline">this week</span> for <span class="custom-underline">each community</span> served by this facility.</strong></p>
-    </div>
+    <h1 id="heading">Register Photo Upload</h1>
 
     <form id="form" novalidate>
+      <label id="typeLabel">What are you uploading?</label>
+      <div id="typePick" class="typePick" role="group" aria-labelledby="typeLabel">
+        <button type="button" data-type="register" aria-pressed="false">Child Immunization Register</button>
+        <button type="button" data-type="ambassador" aria-pressed="false">Ambassador Nomination Tool</button>
+      </div>
+
+      <!-- Instructions for each upload type. Only the one picked is shown. -->
+      <div id="instrNone" class="instr">Choose what you are uploading to see the instructions.</div>
+      <div id="instr-register" class="instr hidden">
+        <p>This form is used to collect data on children receiving immunization at the clinic. This information will be used by Evidence Action and the Government to test a reminder program to children's parents for timely follow up vaccination doses.</p>
+        <p><strong>Every <span class="custom-underline">Friday</span>, take both rounds of photos below, then press Upload once.</strong></p>
+        <ol>
+          <li><strong>Left pages, newest first.</strong> Open to the most recent page. Photograph the <strong>left-hand page</strong>, then go <strong>backward</strong> page by page. Stop at a page where every child was born <strong>more than a week ago</strong>. Names, phone numbers and dates of birth must be <strong>clear and readable</strong>: we use them to send reminders.</li>
+          <li><strong>Pages with new entries this week.</strong> Start again at the <strong>most recent page</strong> and go <strong>backward</strong> to the first page. Photograph <strong>both sides of the page together</strong> for every page with new children or new vaccine dates <span class="custom-underline">this week</span>. We use these to check that each child has one line and to measure vaccine uptake.</li>
+        </ol>
+        <p><strong>Take every photo in good light, from directly above, with the page number showing.</strong></p>
+      </div>
+      <div id="instr-ambassador" class="instr hidden">
+        <p>This form is used to collect data on ambassador nominations by caregivers at the immunization clinic. This information will be used by Evidence Action and the Government to identify ambassadors who can spread information about vaccines in communities for timely follow up vaccination doses.</p>
+        <p><strong>Please take photos of ALL pages of the tool and upload them <span class="custom-underline">every Friday</span>.</strong> This should include <strong>both filled and empty pages</strong>.</p>
+        <p>Take the photos <strong>in good light</strong> and <strong>from directly above</strong>, so <strong>all four corners</strong> of the tool are visible.</p>
+      </div>
+
       <label for="state">State</label>
       <select id="state" required disabled>
         <option value="">Loading...</option>
@@ -139,6 +167,10 @@
       <select id="facility" required disabled>
         <option value="">Select a state first</option>
       </select>
+
+      <label for="phone">Your phone number</label>
+      <input id="phone" type="tel" inputmode="tel" autocomplete="tel" placeholder="0803 123 4567" required>
+      <div id="phoneHint" class="hint hidden">Saved from last time. Change it if this isn't your number.</div>
 
       <label>Photos</label>
       <div id="count">0 photos added</div>
@@ -166,7 +198,7 @@
   </div>
 
   <div id="camOverlay" class="hidden" role="dialog" aria-label="Camera">
-    <div id="camHint">Hold the phone straight above the register page</div>
+    <div id="camHint">Hold the phone straight above the page</div>
     <div id="camStage">
       <video id="camVideo" playsinline muted autoplay></video>
       <div id="camFlash"></div>
@@ -185,19 +217,25 @@
     const QUALITY = 0.75;      // JPEG quality; lower = smaller upload
     const FAC_CACHE_KEY = 'ru-facilities';
     const LAST_KEY = 'ru-last-choice';
+    const PHONE_KEY = 'ru-hcw-phone';
     const INSTALL_KEY = 'ru-install-dismissed';
+    const TYPES = {
+      register: 'Child Immunization Register Upload',
+      ambassador: 'Ambassador Nomination Tool Upload'
+    };
 
     const $ = id => document.getElementById(id);
     const form = $('form'), submitBtn = $('submitBtn');
     const cameraBtn = $('cameraBtn'), galleryBtn = $('galleryBtn');
     const cameraInput = $('cameraInput'), galleryInput = $('galleryInput');
     const grid = $('grid'), countEl = $('count'), statusEl = $('status');
-    const stateSel = $('state'), facSel = $('facility');
+    const stateSel = $('state'), facSel = $('facility'), phoneIn = $('phone'), typePick = $('typePick');
     const queueBox = $('queueBox'), queueTitle = $('queueTitle'), queueNote = $('queueNote'), sendNowBtn = $('sendNowBtn');
 
     let facilities = {};
     let photos = [];           // photos added but not yet saved: [{ key, dataUrl }]
     let nextKey = 1;
+    let docType = '';          // 'register' or 'ambassador'; picked for each batch, never remembered
     let listLoaded = false;
     let saving = false;
     let sending = false;
@@ -360,6 +398,40 @@
       }
     }));
 
+    // ---------- Upload type ----------
+    function setType(t) {
+      docType = t;
+      typePick.querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.type === t)));
+      $('instrNone').classList.toggle('hidden', !!t);
+      Object.keys(TYPES).forEach(k => $('instr-' + k).classList.toggle('hidden', k !== t));
+      $('heading').textContent = TYPES[t] || 'Register Photo Upload';
+      if (t) {
+        typePick.classList.remove('missing');
+        if (statusEl.dataset.missing) { setStatus(''); delete statusEl.dataset.missing; }
+      }
+    }
+    typePick.querySelectorAll('button').forEach(b => b.addEventListener('click', () => setType(b.dataset.type)));
+
+    // ---------- HCW phone (remembered on this phone, like state and facility) ----------
+    // Same rule as the Review app: a Nigerian mobile as 080..., 80..., 234... or +234...
+    function normalizePhone(raw) {
+      const d = String(raw || '').replace(/\D/g, '');
+      let local = null;
+      if (d.length === 13 && d.startsWith('234')) local = d.slice(3);
+      else if (d.length === 11 && d.startsWith('0')) local = d.slice(1);
+      else if (d.length === 10) local = d;
+      return local && /^[789]/.test(local) ? '+234' + local : null;
+    }
+    const savedPhone = load(PHONE_KEY);
+    if (savedPhone) { phoneIn.value = savedPhone; $('phoneHint').classList.remove('hidden'); }
+    phoneIn.addEventListener('input', () => {
+      if (normalizePhone(phoneIn.value)) {
+        phoneIn.classList.remove('missing');
+        store(PHONE_KEY, phoneIn.value.trim());
+        if (statusEl.dataset.missing) { setStatus(''); delete statusEl.dataset.missing; }
+      }
+    });
+
     // ---------- Photos being added ----------
     function refreshButtons() {
       submitBtn.disabled = saving || !listLoaded || photos.length === 0;
@@ -506,14 +578,23 @@
     form.addEventListener('submit', async e => {
       e.preventDefault();
       if (!photos.length) return;
-      if (!stateSel.value || !facSel.value) {
+      const phone = normalizePhone(phoneIn.value);
+      const missing = !docType ? [typePick, 'Please choose what you are uploading.']
+        : !stateSel.value ? [stateSel, 'Please select your state before uploading.']
+        : !facSel.value ? [facSel, 'Please select your facility before uploading.']
+        : !phone ? [phoneIn, phoneIn.value.trim() ? 'Please check your phone number. It should look like 0803 123 4567.'
+                                                  : 'Please enter your phone number before uploading.']
+        : null;
+      if (missing) {
         markMissing();
-        setStatus(!stateSel.value ? 'Please select your state before uploading.'
-                                  : 'Please select your facility before uploading.', 'err');
+        typePick.classList.toggle('missing', !docType);
+        phoneIn.classList.toggle('missing', missing[0] === phoneIn);
+        setStatus(missing[1], 'err');
         statusEl.dataset.missing = '1';
-        (!stateSel.value ? stateSel : facSel).scrollIntoView({ behavior: 'smooth', block: 'center' });
+        missing[0].scrollIntoView({ behavior: 'smooth', block: 'center' });
         return;
       }
+      store(PHONE_KEY, phoneIn.value.trim());
 
       saving = true;
       refreshButtons();
@@ -521,6 +602,8 @@
       const items = photos.map((p, i) => ({
         uploadId: newId(),
         facilityId: facSel.value,
+        docType,
+        phone,
         seq: i + 1,
         queuedAt: now + i,      // keeps order; also used for the file name
         dataUrl: p.dataUrl
@@ -540,6 +623,7 @@
       }
       photos = [];
       saving = false;
+      setType('');   // the next batch needs its own choice
       render();
       setStatus(`${items.length} photo(s) saved on this phone.`, 'ok');
       requestBackgroundSend();
@@ -552,12 +636,7 @@
       for (let i = 0; i < items.length; i++) {
         setStatus(`Phone storage is full, sending directly. Photo ${i + 1} of ${items.length}...`);
         try {
-          await RU.api({
-            action: 'uploadPhoto',
-            meta: { facilityId: items[i].facilityId, uploadId: items[i].uploadId, queuedAt: items[i].queuedAt },
-            dataUrl: items[i].dataUrl,
-            index: items[i].seq
-          });
+          await RU.api(RU.uploadBody(items[i]));
           sent++;
         } catch (e) {
           break;
@@ -569,6 +648,7 @@
       if (photos.length) {
         setStatus(`${sent} sent. ${photos.length} not sent yet because of weak signal. Keep this page open and press Upload again.`, 'err');
       } else {
+        setType('');
         setStatus(`Done! ${sent} photo(s) sent. Thank you.`, 'ok');
       }
     }

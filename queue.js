@@ -80,6 +80,18 @@ var RU = (function () {
     return out.data;
   }
 
+  /** The uploadPhoto request for one queued photo. Photos queued before the phone
+   *  and upload type existed have neither; Apps Script treats them as registers. */
+  function uploadBody(it) {
+    return {
+      action: 'uploadPhoto',
+      meta: { facilityId: it.facilityId, uploadId: it.uploadId, queuedAt: it.queuedAt,
+              docType: it.docType || 'register', phone: it.phone || '' },
+      dataUrl: it.dataUrl,
+      index: it.seq
+    };
+  }
+
   /**
    * Sends waiting photos, oldest first. Stops at the first network failure
    * (probably no signal) and leaves the rest for later.
@@ -92,12 +104,7 @@ var RU = (function () {
     let sent = 0, rejected = 0;
     for (const it of items) {
       try {
-        await api({
-          action: 'uploadPhoto',
-          meta: { facilityId: it.facilityId, uploadId: it.uploadId, queuedAt: it.queuedAt },
-          dataUrl: it.dataUrl,
-          index: it.seq
-        });
+        await api(uploadBody(it));
         await qDel(it.uploadId);   // sent: remove from phone
         sent++;
         if (onProgress) onProgress(sent, items.length);
@@ -128,5 +135,5 @@ var RU = (function () {
     return sendQueueInner(onProgress).finally(() => { busy = false; });
   }
 
-  return { API_URL, MAX_AGE_DAYS, api, qAll, qPut, qDel, purgeOld, sendQueue };
+  return { API_URL, MAX_AGE_DAYS, api, uploadBody, qAll, qPut, qDel, purgeOld, sendQueue };
 })();
