@@ -187,7 +187,7 @@
       </select>
 
       <label for="phone">Your phone number</label>
-      <input id="phone" type="tel" inputmode="tel" autocomplete="tel" placeholder="0803 123 4567" required>
+      <input id="phone" type="tel" inputmode="numeric" autocomplete="tel" maxlength="11" placeholder="08031234567" required>
       <div id="phoneHint" class="hint hidden">Saved from last time. Change it if this isn't your number.</div>
 
       <label>Photos</label>
@@ -524,20 +524,23 @@
 
     // ---------- HCW phone (remembered on this phone, like state and facility) ----------
     // Same rule as the Review app: a Nigerian mobile as 080..., 80..., 234... or +234...
+    // The field takes exactly 11 digits (0 then 7, 8 or 9), no spaces or +234. Sent as +234...
     function normalizePhone(raw) {
-      const d = String(raw || '').replace(/\D/g, '');
-      let local = null;
-      if (d.length === 13 && d.startsWith('234')) local = d.slice(3);
-      else if (d.length === 11 && d.startsWith('0')) local = d.slice(1);
-      else if (d.length === 10) local = d;
-      return local && /^[789]/.test(local) ? '+234' + local : null;
+      const d = String(raw || '');
+      return /^0[789]\d{9}$/.test(d) ? '+234' + d.slice(1) : null;
     }
-    const savedPhone = load(PHONE_KEY);
+    const digitsOnly = v => {
+      const d = String(v || '').replace(/\D/g, '');
+      return (d.length === 13 && d.startsWith('234') ? '0' + d.slice(3) : d).slice(0, 11);
+    };
+    const savedPhone = digitsOnly(load(PHONE_KEY));   // older saves may have spaces or +234
     if (savedPhone) { phoneIn.value = savedPhone; $('phoneHint').classList.remove('hidden'); }
     phoneIn.addEventListener('input', () => {
+      const clean = digitsOnly(phoneIn.value);
+      if (clean !== phoneIn.value) phoneIn.value = clean;
       if (normalizePhone(phoneIn.value)) {
         phoneIn.classList.remove('missing');
-        store(PHONE_KEY, phoneIn.value.trim());
+        store(PHONE_KEY, phoneIn.value);
         if (statusEl.dataset.missing) { setStatus(''); delete statusEl.dataset.missing; }
       }
     });
@@ -693,7 +696,7 @@
         : !stateSel.value ? [stateSel, 'Please select your state before uploading.']
         : usesLga() && !lgaSel.value ? [lgaSel, 'Please select your LGA before uploading.']
         : !facSel.value ? [facSel, 'Please select your facility before uploading.']
-        : !phone ? [phoneIn, phoneIn.value.trim() ? 'Please check your phone number. It should look like 0803 123 4567.'
+        : !phone ? [phoneIn, phoneIn.value.trim() ? 'Please check your phone number. It should be 11 digits, like 08031234567.'
                                                   : 'Please enter your phone number before uploading.']
         : null;
       if (missing) {
@@ -705,7 +708,7 @@
         missing[0].scrollIntoView({ behavior: 'smooth', block: 'center' });
         return;
       }
-      store(PHONE_KEY, phoneIn.value.trim());
+      store(PHONE_KEY, phoneIn.value);
 
       saving = true;
       refreshButtons();
