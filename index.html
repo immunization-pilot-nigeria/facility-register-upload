@@ -59,7 +59,13 @@
                   font-size: 12px; padding: 2px 6px; border-radius: 10px; }
     .thumb .remove { position: absolute; top: 4px; right: 4px; width: 28px; height: 28px; padding: 0;
                      border-radius: 50%; background: rgba(0,0,0,.65); color: #fff; font-size: 16px; line-height: 28px; }
-    input[type=tel] { width: 100%; box-sizing: border-box; padding: 10px; font-size: 16px;
+    #facResults { margin-top: 6px; border: 1px solid #ddd; border-radius: 6px; overflow: hidden; }
+    #facResults button { display: block; width: 100%; text-align: left; padding: 10px 12px; font-size: 15px;
+                         font-weight: normal; background: #fff; color: #222; border-radius: 0; border-bottom: 1px solid #eee; }
+    #facResults button:last-child { border-bottom: none; }
+    #facResults button small { display: block; color: #666; font-size: 13px; margin-top: 2px; }
+    #facResults .more { padding: 8px 12px; font-size: 13px; color: #666; background: #fafafa; }
+    input[type=search], input[type=tel] { width: 100%; box-sizing: border-box; padding: 10px; font-size: 16px;
                       border: 1px solid #bbb; border-radius: 6px; background: #fff; }
     .hint { font-size: 13px; color: #555; margin-top: 4px; }
     /* Upload type: two big buttons, picked once per batch, never remembered */
@@ -158,10 +164,22 @@
         <p>Take the photos <strong>in good light</strong> and <strong>from directly above</strong>, so <strong>all four corners</strong> of the tool are visible.</p>
       </div>
 
+      <label for="facSearch">Search for your facility</label>
+      <input id="facSearch" type="search" autocomplete="off" placeholder="Type part of the facility name">
+      <div id="facResults" class="hidden" role="listbox" aria-label="Matching facilities"></div>
+      <div class="hint">Or choose below.</div>
+
       <label for="state">State</label>
       <select id="state" required disabled>
         <option value="">Loading...</option>
       </select>
+
+      <div id="lgaWrap" class="hidden">
+        <label for="lga">LGA</label>
+        <select id="lga" disabled>
+          <option value="">Select a state first</option>
+        </select>
+      </div>
 
       <label for="facility">Facility</label>
       <select id="facility" required disabled>
@@ -229,7 +247,8 @@
     const cameraBtn = $('cameraBtn'), galleryBtn = $('galleryBtn');
     const cameraInput = $('cameraInput'), galleryInput = $('galleryInput');
     const grid = $('grid'), countEl = $('count'), statusEl = $('status');
-    const stateSel = $('state'), facSel = $('facility'), phoneIn = $('phone'), typePick = $('typePick');
+    const stateSel = $('state'), lgaSel = $('lga'), facSel = $('facility'), phoneIn = $('phone'), typePick = $('typePick');
+    const facSearch = $('facSearch'), facResults = $('facResults');
     const queueBox = $('queueBox'), queueTitle = $('queueTitle'), queueNote = $('queueNote'), sendNowBtn = $('sendNowBtn');
 
     let facilities = {};
@@ -334,7 +353,7 @@
     }
 
     function applyFacilities(map) {
-      const prevState = stateSel.value, prevFac = facSel.value;
+      const prevState = stateSel.value, prevLga = lgaSel.value, prevFac = facSel.value;
       facilities = map;
       if (!Object.keys(map).length) {
         fillSelect(stateSel, [], 'No facilities found');
@@ -349,10 +368,12 @@
       const last = load(LAST_KEY) || {};
       const wantState = prevState || last.state;
       const wantFac = prevFac || last.facilityId;
-      if (wantState && map[wantState]) {
+      if (wantFac && findFacility(wantFac)) {
+        selectFacility(wantFac);
+      } else if (wantState && map[wantState]) {
         stateSel.value = wantState;
         onStateChange();
-        if (wantFac && map[wantState].some(f => f.id === wantFac)) facSel.value = wantFac;
+        if (prevLga && lgasIn(wantState).includes(prevLga)) { lgaSel.value = prevLga; onLgaChange(); }
       }
       refreshButtons();
     }
@@ -377,26 +398,115 @@
         });
     }
 
+    // LGA is optional in the Facilities sheet: the LGA dropdown only shows for states that have them.
+    // Facilities with no LGA in such a state are listed under "Other".
+    const NO_LGA = 'Other';
+    const lgaOf = f => f.lga || NO_LGA;
+    function lgasIn(state) {
+      const list = facilities[state] || [];
+      if (!list.some(f => f.lga)) return [];
+      return [...new Set(list.map(lgaOf))].sort((a, b) => a === NO_LGA ? 1 : b === NO_LGA ? -1 : a.localeCompare(b));
+    }
+    const lgaWrap = $('lgaWrap');
+    const usesLga = () => !lgaWrap.classList.contains('hidden');
+
     function onStateChange() {
-      const list = facilities[stateSel.value] || [];
-      fillSelect(facSel, list, stateSel.value ? 'Select your facility' : 'Select a state first');
-      facSel.disabled = !stateSel.value;
+      const lgas = lgasIn(stateSel.value);
+      lgaWrap.classList.toggle('hidden', !lgas.length);
+      fillSelect(lgaSel, lgas, 'Select your LGA');
+      lgaSel.disabled = !lgas.length;
+      onLgaChange();
     }
 
-    function markMissing() {
-      stateSel.classList.toggle('missing', !stateSel.value);
-      facSel.classList.toggle('missing', !!stateSel.value && !facSel.value);
+    function onLgaChange() {
+      let list = facilities[stateSel.value] || [];
+      let placeholder = 'Select your facility';
+      if (!stateSel.value) placeholder = 'Select a state first';
+      else if (usesLga()) {
+        list = lgaSel.value ? list.filter(f => lgaOf(f) === lgaSel.value) : [];
+        if (!lgaSel.value) placeholder = 'Select your LGA first';
+      }
+      fillSelect(facSel, list, placeholder);
+      facSel.disabled = !list.length;
     }
 
-    stateSel.addEventListener('change', () => { onStateChange(); refreshButtons(); });
-    facSel.addEventListener('change', refreshButtons);
-    [stateSel, facSel].forEach(sel => sel.addEventListener('change', () => {
-      if (sel.value) sel.classList.remove('missing');
+    function findFacility(id) {
+      for (const state of Object.keys(facilities)) {
+        const f = facilities[state].find(x => x.id === id);
+        if (f) return { state, f };
+      }
+      return null;
+    }
+
+    /** Sets state, LGA and facility from one facility ID (used by search and by restore). */
+    function selectFacility(id) {
+      const hit = findFacility(id);
+      if (!hit) return;
+      stateSel.value = hit.state;
+      onStateChange();
+      if (usesLga()) { lgaSel.value = lgaOf(hit.f); onLgaChange(); }
+      facSel.value = id;
+      [stateSel, lgaSel, facSel].forEach(s => s.classList.remove('missing'));
+      choiceMade();
+    }
+
+    function choiceMade() {
       if (stateSel.value && facSel.value) {
         store(LAST_KEY, { state: stateSel.value, facilityId: facSel.value });
         if (statusEl.dataset.missing) { setStatus(''); delete statusEl.dataset.missing; }
       }
+      refreshButtons();
+    }
+
+    function markMissing() {
+      stateSel.classList.toggle('missing', !stateSel.value);
+      lgaSel.classList.toggle('missing', !!stateSel.value && usesLga() && !lgaSel.value);
+      facSel.classList.toggle('missing', !!stateSel.value && (!usesLga() || !!lgaSel.value) && !facSel.value);
+    }
+
+    stateSel.addEventListener('change', onStateChange);
+    lgaSel.addEventListener('change', onLgaChange);
+    [stateSel, lgaSel, facSel].forEach(sel => sel.addEventListener('change', () => {
+      if (sel.value) sel.classList.remove('missing');
+      choiceMade();
     }));
+
+    // ---------- Facility search (any state) ----------
+    const MAX_RESULTS = 8;
+    const norm = t => String(t || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+    function showResults() {
+      const q = norm(facSearch.value);
+      facResults.innerHTML = '';
+      if (!q) { facResults.classList.add('hidden'); return; }
+      const words = q.split(' ');
+      const hits = [];
+      Object.keys(facilities).sort().forEach(state => facilities[state].forEach(f => {
+        const hay = norm(f.name + ' ' + f.id);
+        if (words.every(w => hay.includes(w))) hits.push({ state, f });
+      }));
+      hits.slice(0, MAX_RESULTS).forEach(({ state, f }) => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.setAttribute('role', 'option');
+        b.textContent = f.name;
+        const where = document.createElement('small');
+        where.textContent = (f.lga ? f.lga + ', ' : '') + state;
+        b.appendChild(where);
+        b.addEventListener('click', () => {
+          selectFacility(f.id);
+          facSearch.value = '';
+          facResults.classList.add('hidden');
+        });
+        facResults.appendChild(b);
+      });
+      const more = document.createElement('div');
+      more.className = 'more';
+      if (!hits.length) more.textContent = 'No facility matches. Check the spelling, or choose below.';
+      else if (hits.length > MAX_RESULTS) more.textContent = `${hits.length} matches. Keep typing to narrow it down.`;
+      if (more.textContent) facResults.appendChild(more);
+      facResults.classList.remove('hidden');
+    }
+    facSearch.addEventListener('input', showResults);
 
     // ---------- Upload type ----------
     function setType(t) {
@@ -581,6 +691,7 @@
       const phone = normalizePhone(phoneIn.value);
       const missing = !docType ? [typePick, 'Please choose what you are uploading.']
         : !stateSel.value ? [stateSel, 'Please select your state before uploading.']
+        : usesLga() && !lgaSel.value ? [lgaSel, 'Please select your LGA before uploading.']
         : !facSel.value ? [facSel, 'Please select your facility before uploading.']
         : !phone ? [phoneIn, phoneIn.value.trim() ? 'Please check your phone number. It should look like 0803 123 4567.'
                                                   : 'Please enter your phone number before uploading.']
