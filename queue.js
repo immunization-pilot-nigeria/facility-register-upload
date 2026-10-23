@@ -86,7 +86,8 @@ var RU = (function () {
     return {
       action: 'uploadPhoto',
       meta: { facilityId: it.facilityId, uploadId: it.uploadId, queuedAt: it.queuedAt,
-              docType: it.docType || 'register', phone: it.phone || '' },
+              docType: it.docType || 'register', phone: it.phone || '',
+              idScheme: it.idScheme || '' },  // none: queued before the HF switch, Apps Script translates the ID
       dataUrl: it.dataUrl,
       index: it.seq
     };

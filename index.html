@@ -233,8 +233,12 @@
   <script>
     const MAX_DIM = 1800;      // longest side in pixels; keeps text readable
     const QUALITY = 0.75;      // JPEG quality; lower = smaller upload
-    const FAC_CACHE_KEY = 'ru-facilities';
-    const LAST_KEY = 'ru-last-choice';
+    // New keys since the switch to the research HF IDs (23 Oct 2026): phones drop the old list and the remembered
+    // facility (both in the old numbering) and fetch the new list. Every photo is tagged with ID_SCHEME.
+    const FAC_CACHE_KEY = 'ru-facilities-hf';
+    const LAST_KEY = 'ru-last-choice-hf';
+    const ID_SCHEME = 'hf';
+    try { ['ru-facilities', 'ru-last-choice'].forEach(k => localStorage.removeItem(k)); } catch (e) {}  // old numbering
     const PHONE_KEY = 'ru-hcw-phone';
     const INSTALL_KEY = 'ru-install-dismissed';
     const TYPES = {
@@ -716,6 +720,7 @@
       const items = photos.map((p, i) => ({
         uploadId: newId(),
         facilityId: facSel.value,
+        idScheme: ID_SCHEME,
         docType,
         phone,
         seq: i + 1,
