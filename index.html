@@ -5,8 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Child Immunization Register Upload</title>
   <script>
-    // Android: send anything that isn't Chrome (or Samsung Internet / Edge) to Chrome,
-    // because offline use and Add to home screen need a full browser.
+    // Android: offer Chrome to anything that isn't Chrome (or Samsung Internet / Edge),
+    // because offline use and Add to home screen need a full browser. Never jump on its own
+    // (4 Nov 2026: a phone without a working Chrome landed on a Google 403 page): the banner's
+    // button opens Chrome, and the form keeps working here meanwhile.
     (function () {
       var ua = navigator.userAgent || '';
       if (!/Android/i.test(ua)) return;
@@ -19,12 +21,7 @@
       window.RU_CHROME_URL = 'intent://' + location.host + location.pathname + location.search +
         '#Intent;scheme=https;package=com.android.chrome;S.browser_fallback_url=' +
         encodeURIComponent(fallback) + ';end';
-      window.RU_NO_CHROME = /[?&]nochrome=1/.test(location.search);
-      if (window.RU_NO_CHROME) return;            // Chrome isn't installed: don't loop
-      var tried = null;
-      try { tried = sessionStorage.getItem('ru-chrome-tried'); sessionStorage.setItem('ru-chrome-tried', '1'); } catch (e) {}
-      if (tried) return;                          // tried once already: show the button instead
-      location.href = window.RU_CHROME_URL;
+      window.RU_NO_CHROME = /[?&]nochrome=1/.test(location.search);   // came back: Chrome isn't installed
     })();
   </script>
   <link rel="manifest" href="manifest.webmanifest">
@@ -115,15 +112,29 @@
     #camDone { width: 90px; padding: 10px; font-size: 15px; background: #1a6b3c; color: #fff; }
     #shutterBtn { width: 76px; height: 76px; padding: 0; border-radius: 50%; background: #fff; border: 6px solid #9fd3b2; }
     #shutterBtn:active { background: #ddd; }
+    /* Large preview: tap a thumbnail to check a photo before upload */
+    .thumb img { cursor: zoom-in; }
+    #viewOverlay { position: fixed; inset: 0; z-index: 1001; background: #000; display: flex; flex-direction: column; }
+    #viewTop { display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; color: #fff; font-size: 15px; }
+    #viewTop button { width: auto; padding: 8px 14px; font-size: 15px; background: #fff; color: #222; }
+    #viewStage { flex: 1; min-height: 0; overflow: auto; display: flex; align-items: center; justify-content: center; }
+    #viewImg { max-width: 100%; max-height: 100%; display: block; }
+    #viewStage.zoomed { display: block; }
+    #viewStage.zoomed #viewImg { max-width: none; max-height: none; width: 250%; }
+    #viewHint { color: #ccc; font-size: 13px; text-align: center; padding: 6px 16px 0; }
+    #viewBar { display: flex; gap: 8px; padding: 10px 12px 22px; }
+    #viewBar button { flex: 1; padding: 12px 6px; font-size: 15px; background: #333; color: #fff; }
+    #viewBar button:disabled { opacity: .35; background: #333 !important; }
+    #viewDelete { background: #b00020 !important; }
     #nativeCamBtn { margin-top: 8px; padding: 10px; font-size: 14px; background: #fff; color: #1a6b3c; border: 1px solid #1a6b3c; }
   </style>
 </head>
 <body>
   <div class="card">
     <div id="chromeBanner" class="banner hidden">
-      <div id="chromeText"><strong>Please open this form in Chrome.</strong> It needs Chrome to work without signal and to add to your home screen.</div>
+      <div id="chromeText"><strong>This form works best in Google Chrome.</strong> Chrome lets it work without signal and sit on your home screen. You can also continue here while you have signal.</div>
       <button id="openChromeBtn" type="button">Open in Chrome</button>
-      <button id="stayHereBtn" type="button">Continue here anyway</button>
+      <button id="stayHereBtn" type="button">Continue here</button>
     </div>
 
     <div id="offlineBanner" class="banner hidden">
@@ -229,6 +240,20 @@
     </div>
   </div>
 
+  <div id="viewOverlay" class="hidden" role="dialog" aria-label="Photo preview">
+    <div id="viewTop">
+      <span id="viewTitle"></span>
+      <button id="viewClose" type="button">Close</button>
+    </div>
+    <div id="viewStage"><img id="viewImg" alt=""></div>
+    <div id="viewHint">Can you read the names, phone numbers and dates? Tap the photo to zoom in.</div>
+    <div id="viewBar">
+      <button id="viewPrev" type="button">‹ Previous</button>
+      <button id="viewDelete" type="button">Delete</button>
+      <button id="viewNext" type="button">Next ›</button>
+    </div>
+  </div>
+
   <script src="queue.js"></script>
   <script>
     const MAX_DIM = 1800;      // longest side in pixels; keeps text readable
@@ -306,7 +331,7 @@
           'Please install <strong>Google Chrome</strong> from the Play Store, then open the link again. ' +
           'You can continue here for now while you have signal.';
       }
-      setTimeout(() => $('chromeBanner').classList.remove('hidden'), 800);
+      $('chromeBanner').classList.remove('hidden');
       $('openChromeBtn').addEventListener('click', () => { location.href = window.RU_CHROME_URL; });
       $('stayHereBtn').addEventListener('click', () => $('chromeBanner').classList.add('hidden'));
     }
@@ -563,6 +588,8 @@
         div.className = 'thumb';
         const img = document.createElement('img');
         img.src = p.dataUrl;
+        img.alt = 'Photo ' + (i + 1) + '. Tap to see it large.';
+        img.onclick = () => openViewer(i);
         div.appendChild(img);
         const num = document.createElement('span');
         num.className = 'num';
@@ -581,6 +608,56 @@
       countEl.textContent = n === 1 ? '1 photo added' : `${n} photos added`;
       refreshButtons();
     }
+
+    // ---------- Large preview ----------
+    // Tap a thumbnail to see the photo full screen and check it is sharp before upload.
+    const viewOverlay = $('viewOverlay'), viewStage = $('viewStage'), viewImg = $('viewImg');
+    let viewAt = -1;
+    function showView() {
+      const p = photos[viewAt];
+      viewImg.src = p.dataUrl;
+      viewStage.classList.remove('zoomed');
+      viewStage.scrollTo(0, 0);
+      $('viewTitle').textContent = `Photo ${viewAt + 1} of ${photos.length}`;
+      $('viewPrev').disabled = viewAt === 0;
+      $('viewNext').disabled = viewAt === photos.length - 1;
+    }
+    function openViewer(i) {
+      viewAt = i;
+      showView();
+      viewOverlay.classList.remove('hidden');
+      document.body.style.overflow = 'hidden';
+      try { history.pushState({ view: 1 }, ''); } catch (e) {}
+    }
+    function closeViewer(fromBack) {
+      if (viewAt < 0) return;
+      viewAt = -1;
+      viewImg.removeAttribute('src');
+      viewOverlay.classList.add('hidden');
+      document.body.style.overflow = '';
+      if (!fromBack && history.state && history.state.view) { try { history.back(); } catch (e) {} }
+    }
+    viewStage.addEventListener('click', e => {
+      if (e.target !== viewImg) return;
+      const zoom = !viewStage.classList.contains('zoomed');
+      // Zoom in on the spot that was tapped.
+      const fx = e.offsetX / viewImg.clientWidth, fy = e.offsetY / viewImg.clientHeight;
+      viewStage.classList.toggle('zoomed', zoom);
+      if (zoom) viewStage.scrollTo(fx * viewImg.clientWidth - viewStage.clientWidth / 2,
+                                   fy * viewImg.clientHeight - viewStage.clientHeight / 2);
+    });
+    $('viewClose').addEventListener('click', () => closeViewer(false));
+    $('viewPrev').addEventListener('click', () => { if (viewAt > 0) { viewAt--; showView(); } });
+    $('viewNext').addEventListener('click', () => { if (viewAt < photos.length - 1) { viewAt++; showView(); } });
+    $('viewDelete').addEventListener('click', () => {
+      const key = photos[viewAt].key;
+      photos = photos.filter(x => x.key !== key);
+      render();
+      if (!photos.length) return closeViewer(false);
+      viewAt = Math.min(viewAt, photos.length - 1);
+      showView();
+    });
+    window.addEventListener('popstate', () => { if (viewAt >= 0) closeViewer(true); });
 
     // Shrink photos on the phone before saving, to save storage and mobile data.
     function compress(file) {
@@ -607,17 +684,68 @@
     const camOverlay = $('camOverlay'), camVideo = $('camVideo'), camFlash = $('camFlash');
     const camCount = $('camCount'), shutterBtn = $('shutterBtn'), camDone = $('camDone');
     const nativeCamBtn = $('nativeCamBtn');
-    let camStream = null, camTaken = 0;
+    let camStream = null, camTaken = 0, camBusy = false;
+
+    // Some Android phones hand back a solid green frame from the live video (found 3 Nov 2026).
+    // Each shot is checked; on a blank one the form tries the next way of taking photos, still
+    // inside the form, and remembers on this phone which way worked:
+    //   'video'     frame from the live video at 2560x1920 (every phone starts here)
+    //   'videoLow'  the same at 1920x1440 (still above MAX_DIM, so uploads are unchanged)
+    //   'still'     ImageCapture.takePhoto(), the camera's own still photo
+    //   'native'    the phone's camera app (last resort: may save to the gallery)
+    const CAM_KEY = 'ru-cam-method';
+    const CAM_STEPS = ['video', 'videoLow', 'still', 'native'];
+    const CAM_SIZE = { video: [2560, 1920], videoLow: [1920, 1440], still: [1920, 1440] };
+    const canStill = () => typeof window.ImageCapture === 'function';
+    let camMethod = CAM_STEPS.includes(load(CAM_KEY)) ? load(CAM_KEY) : 'video';
+    if (camMethod === 'still' && !canStill()) camMethod = 'native';
+    const NATIVE_NOTE = 'The camera inside the form is not working on this phone, so the phone\'s camera app will open. ' +
+      'It may save photos to your gallery: delete them from the gallery once they are sent.';
+
+    /** 'flat' if the picture is (nearly) one colour, like the green frames some phones return;
+     *  'dark' if that colour is near black (finger over the lens, no light); otherwise ''. */
+    function blankKind(source) {
+      const N = 16, c = document.createElement('canvas');
+      c.width = c.height = N;
+      const g = c.getContext('2d');
+      g.drawImage(source, 0, 0, N, N);
+      const d = g.getImageData(0, 0, N, N).data;
+      const lo = [255, 255, 255], hi = [0, 0, 0];
+      for (let i = 0; i < d.length; i += 4) {
+        for (let k = 0; k < 3; k++) { lo[k] = Math.min(lo[k], d[i + k]); hi[k] = Math.max(hi[k], d[i + k]); }
+      }
+      if (Math.max(hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]) >= 24) return '';
+      return Math.max(...hi) < 40 ? 'dark' : 'flat';
+    }
+
+    async function startStream() {
+      const [w, h] = CAM_SIZE[camMethod];
+      camStream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: 'environment' }, width: { ideal: w }, height: { ideal: h } },
+        audio: false
+      });
+      camVideo.srcObject = camStream;
+      camVideo.play().catch(() => {});
+    }
+    function stopStream() {
+      if (camStream) camStream.getTracks().forEach(t => t.stop());
+      camStream = null;
+      camVideo.srcObject = null;
+    }
+
+    function openNative() {
+      setStatus(NATIVE_NOTE, 'warn');
+      nativeCamBtn.classList.remove('hidden');
+      cameraInput.click();
+    }
 
     async function openCamera() {
       if (!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia)) {
         return cameraInput.click();   // very old phone or in-app browser: use the camera app
       }
+      if (camMethod === 'native') return openNative();
       try {
-        camStream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: { ideal: 'environment' }, width: { ideal: 2560 }, height: { ideal: 1920 } },
-          audio: false
-        });
+        await startStream();
       } catch (err) {
         const denied = err && (err.name === 'NotAllowedError' || err.name === 'SecurityError');
         setStatus(denied
@@ -626,19 +754,54 @@
         nativeCamBtn.classList.remove('hidden');
         return;
       }
-      camVideo.srcObject = camStream;
       camTaken = 0;
       camCount.textContent = 'Tap the white button to take a photo.';
       camOverlay.classList.remove('hidden');
       document.body.style.overflow = 'hidden';
       try { history.pushState({ cam: 1 }, ''); } catch (e) {}
-      camVideo.play().catch(() => {});
+    }
+
+    /** A blank shot: move to the next way of taking photos. */
+    async function nextMethod() {
+      let i = CAM_STEPS.indexOf(camMethod) + 1;
+      if (CAM_STEPS[i] === 'still' && !canStill()) i++;
+      camMethod = CAM_STEPS[i] || 'native';
+      store(CAM_KEY, camMethod);
+      if (camMethod === 'native') {
+        closeCamera(false);
+        return openNative();
+      }
+      camCount.textContent = 'That photo came out blank. Fixing the camera...';
+      stopStream();
+      try { await startStream(); }
+      catch (e) { camMethod = 'native'; store(CAM_KEY, camMethod); closeCamera(false); return openNative(); }
+      camCount.textContent = 'That photo came out blank and was not kept. Please take it again.';
+    }
+
+    /** One photo: { dataUrl } or { blank: 'flat' | 'dark' }. */
+    async function grab() {
+      if (camMethod === 'still') {
+        const blob = await new ImageCapture(camStream.getVideoTracks()[0]).takePhoto();
+        const img = new Image(), url = URL.createObjectURL(blob);
+        try {
+          await new Promise((ok, bad) => { img.onload = ok; img.onerror = bad; img.src = url; });
+          const blank = blankKind(img);
+          if (blank) return { blank };
+        } finally { URL.revokeObjectURL(url); }
+        return { dataUrl: await compress(blob) };
+      }
+      const w = camVideo.videoWidth, h = camVideo.videoHeight;
+      const scale = Math.min(1, MAX_DIM / Math.max(w, h));
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.round(w * scale);
+      canvas.height = Math.round(h * scale);
+      canvas.getContext('2d').drawImage(camVideo, 0, 0, canvas.width, canvas.height);
+      const blank = blankKind(canvas);
+      return blank ? { blank } : { dataUrl: canvas.toDataURL('image/jpeg', QUALITY) };
     }
 
     function closeCamera(fromBack) {
-      if (camStream) camStream.getTracks().forEach(t => t.stop());
-      camStream = null;
-      camVideo.srcObject = null;
+      stopStream();
       camOverlay.classList.add('hidden');
       document.body.style.overflow = '';
       if (!fromBack && history.state && history.state.cam) { try { history.back(); } catch (e) {} }
@@ -646,15 +809,21 @@
       render();
     }
 
-    shutterBtn.addEventListener('click', () => {
-      const w = camVideo.videoWidth, h = camVideo.videoHeight;
-      if (!w || !h) return;   // camera still starting
-      const scale = Math.min(1, MAX_DIM / Math.max(w, h));
-      const canvas = document.createElement('canvas');
-      canvas.width = Math.round(w * scale);
-      canvas.height = Math.round(h * scale);
-      canvas.getContext('2d').drawImage(camVideo, 0, 0, canvas.width, canvas.height);
-      photos.push({ key: nextKey++, dataUrl: canvas.toDataURL('image/jpeg', QUALITY) });
+    shutterBtn.addEventListener('click', async () => {
+      if (camBusy || !camStream || !camVideo.videoWidth || !camVideo.videoHeight) return;   // camera still starting
+      camBusy = true;
+      shutterBtn.disabled = true;
+      let shot;
+      try { shot = await grab(); } catch (e) { shot = { blank: 'flat' }; }   // takePhoto failed: try the next way
+      camBusy = false;
+      shutterBtn.disabled = false;
+      if (shot.blank === 'dark') {
+        camCount.textContent = 'That photo was too dark and was not kept. Check nothing covers the camera, then take it again.';
+        return;
+      }
+      if (shot.blank) return nextMethod();
+      store(CAM_KEY, camMethod);   // this way works on this phone
+      photos.push({ key: nextKey++, dataUrl: shot.dataUrl });
       camTaken++;
       camFlash.style.opacity = '0.8';
       setTimeout(() => { camFlash.style.opacity = '0'; }, 120);
@@ -665,7 +834,7 @@
     window.addEventListener('popstate', () => { if (camStream) closeCamera(true); });
 
     cameraBtn.addEventListener('click', openCamera);
-    nativeCamBtn.addEventListener('click', () => cameraInput.click());
+    nativeCamBtn.addEventListener('click', () => { setStatus(NATIVE_NOTE, 'warn'); cameraInput.click(); });
     galleryBtn.addEventListener('click', () => galleryInput.click());
     cameraInput.addEventListener('change', () => addFiles(cameraInput));
     galleryInput.addEventListener('change', () => addFiles(galleryInput));
