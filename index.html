@@ -9,22 +9,31 @@
     // because offline use and Add to home screen need a full browser. Never jump on its own
     // (4 Nov 2026: a phone without a working Chrome landed on a Google 403 page): the banner's
     // button opens Chrome, and the form keeps working here meanwhile.
+    // Samsung Internet (6 Nov 2026): the form works there, but its "install" builds an app for an old Android
+    // version that Google Play Protect now blocks ("Unsafe app blocked"). So Samsung Internet gets no manifest
+    // (no install icon) and the install banner sends the HCW to Chrome, whose installs Play Protect accepts.
     (function () {
       var ua = navigator.userAgent || '';
-      if (!/Android/i.test(ua)) return;
-      var ok = /Chrome\/\d+/.test(ua) && !/; wv\)/.test(ua) &&
-        !/OPR\/|Opera|OPT\/|UCBrowser|UCWEB|Phoenix|PHX\/|Firefox|YaBrowser|MiuiBrowser|HeyTapBrowser|Instagram|FBAN|FBAV|WhatsApp/i.test(ua);
-      if (ok) return;
-      window.RU_NEEDS_CHROME = true;
+      var android = /Android/i.test(ua);
+      var samsung = /SamsungBrowser/i.test(ua);
+      if (!(android && samsung)) {
+        var m = document.createElement('link');
+        m.rel = 'manifest'; m.href = 'manifest.webmanifest';
+        document.head.appendChild(m);
+      }
+      if (!android) return;
       var clean = location.href.replace(/([?&])nochrome=1&?/, '$1').replace(/[?&]$/, '');
       var fallback = clean + (clean.indexOf('?') >= 0 ? '&' : '?') + 'nochrome=1';
       window.RU_CHROME_URL = 'intent://' + location.host + location.pathname + location.search +
         '#Intent;scheme=https;package=com.android.chrome;S.browser_fallback_url=' +
         encodeURIComponent(fallback) + ';end';
       window.RU_NO_CHROME = /[?&]nochrome=1/.test(location.search);   // came back: Chrome isn't installed
+      window.RU_INSTALL_IN_CHROME = samsung;
+      var ok = /Chrome\/\d+/.test(ua) && !/; wv\)/.test(ua) &&
+        !/OPR\/|Opera|OPT\/|UCBrowser|UCWEB|Phoenix|PHX\/|Firefox|YaBrowser|MiuiBrowser|HeyTapBrowser|Instagram|FBAN|FBAV|WhatsApp/i.test(ua);
+      if (!ok) window.RU_NEEDS_CHROME = true;
     })();
   </script>
-  <link rel="manifest" href="manifest.webmanifest">
   <meta name="theme-color" content="#1a6b3c">
   <link rel="apple-touch-icon" href="icon-192.png">
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -351,7 +360,17 @@
       installPrompt = e;
       showInstall('Add this form to your home screen so it opens even without signal.', true);
     });
+    // Samsung Internet: no app install (see the head script). Instead, a plain home-screen shortcut from the
+    // browser menu (no app, so Play Protect doesn't block it; offline still works from the saved copy), or
+    // Chrome if the phone has it.
+    if (window.RU_INSTALL_IN_CHROME) {
+      showInstall('Add this form to your home screen: tap the menu button at the bottom of the screen ' +
+        '(three lines or three dots), then "Add page to", then "Home screen".' +
+        (window.RU_NO_CHROME ? '' : ' Or open it in Google Chrome and add it from there.'), !window.RU_NO_CHROME);
+      $('installBtn').textContent = 'Open in Chrome';
+    }
     $('installBtn').addEventListener('click', async () => {
+      if (window.RU_INSTALL_IN_CHROME) { location.href = window.RU_CHROME_URL; return; }
       if (!installPrompt) return;
       installPrompt.prompt();
       await installPrompt.userChoice.catch(() => {});
