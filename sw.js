@@ -7,8 +7,8 @@
  */
 importScripts('queue.js');
 
-const CACHE = 'register-upload-shell-v2';
-const SHELL = ['./', './index.html', './queue.js', './manifest.webmanifest', './icon-192.png', './icon-512.png'];
+const CACHE = 'register-upload-shell-v3';
+const SHELL = ['./', './index.html', './meeting.html', './queue.js', './manifest.webmanifest', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', event => {
   event.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting()));

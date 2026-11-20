@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LGA Review Meeting Form</title>
+  <meta name="theme-color" content="#1a6b3c">
+  <!-- Filled at the LGA review meeting, one facility at a time. Answers go to the meeting month's review meeting
+       sheet through the same Apps Script as the register upload form. No child data. -->
+  <style>
+    body { font-family: Arial, sans-serif; margin: 0; padding: 16px; background: #f5f5f5; color: #222; }
+    .card { max-width: 480px; margin: 0 auto; background: #fff; padding: 20px; border-radius: 8px; }
+    h1 { font-size: 20px; margin: 0 0 4px; }
+    h2 { font-size: 16px; margin: 22px 0 4px; color: #1a6b3c; border-bottom: 2px solid #cfe5d6; padding-bottom: 3px; }
+    .sub { margin: 0 0 12px; color: #444; font-size: 14px; line-height: 1.45; }
+    label, .q { display: block; font-weight: bold; margin: 14px 0 4px; font-size: 14px; }
+    select, input[type=text], input[type=date], input[type=number] { width: 100%; box-sizing: border-box; padding: 10px;
+      font-size: 16px; border: 1px solid #bbb; border-radius: 6px; background: #fff; }
+    .hint { font-size: 12px; color: #666; margin-top: 3px; }
+    .fixed { background: #eef5f0; border: 1px solid #cfe5d6; border-radius: 6px; padding: 9px 10px; font-size: 15px; }
+    .choice { display: flex; gap: 8px; flex-wrap: wrap; }
+    .choice button { flex: 1 1 40%; padding: 11px 8px; font-size: 15px; border: 1px solid #bbb; border-radius: 6px;
+      background: #fff; color: #222; font-weight: normal; }
+    .choice.stack button { flex: 1 1 100%; text-align: left; }
+    .choice button.on { background: #1a6b3c; color: #fff; border-color: #1a6b3c; font-weight: bold; }
+    .doses { display: grid; grid-template-columns: 1fr 96px 92px; gap: 6px 8px; align-items: center; font-size: 15px; }
+    .doses input[type=number] { padding: 8px; text-align: right; }
+    .doses .na { font-size: 12px; color: #555; display: flex; align-items: center; gap: 4px; font-weight: normal; margin: 0; }
+    .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+    .chips button { border: 1px solid #bbb; border-radius: 16px; padding: 7px 12px; font-size: 14px; background: #fff; color: #222; }
+    .chips button.on { background: #1a6b3c; color: #fff; border-color: #1a6b3c; }
+    .session { border: 1px solid #ddd; border-radius: 6px; padding: 10px; margin-top: 10px; }
+    .session .t { font-size: 12px; color: #666; font-weight: bold; }
+    .send { width: 100%; padding: 14px; margin-top: 22px; font-size: 16px; font-weight: bold; border: none; border-radius: 6px;
+      background: #1a6b3c; color: #fff; }
+    .send:disabled { background: #999; }
+    .msg { border-radius: 6px; padding: 10px 12px; font-size: 14px; margin-top: 12px; line-height: 1.4; }
+    .ok { background: #e3f1e0; color: #1a6b3c; }
+    .warn { background: #fff4e5; color: #8a4b00; }
+    .err { background: #fde6e6; color: #a00; }
+    .hidden { display: none; }
+    .summary div { display: flex; justify-content: space-between; gap: 10px; padding: 6px 0; border-bottom: 1px solid #eee; font-size: 14px; }
+    .summary span:last-child { text-align: right; }
+  </style>
+</head>
+<body>
+<div class="card">
+  <h1>LGA Review Meeting Form</h1>
+  <p class="sub">One form per facility, filled with the health worker. Check the stock card itself and read the
+    numbers from it. Sending a facility again replaces its answers.</p>
+  <div id="outbox" class="msg warn hidden"></div>
+
+  <form id="f" autocomplete="off" novalidate>
+    <label>Today's date</label><div class="fixed" id="today"></div>
+    <label for="state">State</label><select id="state"><option value="">Loading the facility list…</option></select>
+    <label for="lga">LGA</label><select id="lga" disabled><option value="">Pick a state first</option></select>
+    <label for="fac">Facility</label><select id="fac" disabled><option value="">Pick an LGA first</option></select>
+    <div id="facInfo" class="fixed hidden" style="margin-top:8px"></div>
+
+    <div id="body" class="hidden">
+      <h2>Vaccine stock card</h2>
+      <div class="q">Did the health worker bring the vaccine stock card to the meeting?</div>
+      <div class="choice" data-name="card"><button type="button" data-v="Yes">Yes</button><button type="button" data-v="No">No</button></div>
+
+      <div id="noCard" class="hidden">
+        <div class="q">Why was the stock card not brought?</div>
+        <div class="choice stack" data-name="reason">
+          <button type="button" data-v="Forgot it">Forgot it</button>
+          <button type="button" data-v="Left at the facility">Left at the facility</button>
+          <button type="button" data-v="The facility does not keep one">The facility does not keep one</button>
+          <button type="button" data-v="Other">Other, specify</button>
+        </div>
+        <input type="text" id="reasonOther" class="hidden" placeholder="Why?" style="margin-top:8px">
+        <div class="msg warn">The stock questions are skipped for this facility.</div>
+      </div>
+
+      <div id="card" class="hidden">
+        <label for="lastEntry">Date of the latest entry on the stock card</label>
+        <input type="date" id="lastEntry">
+        <div class="q">Doses available now</div>
+        <div class="hint" style="margin:-2px 0 8px">Read the balance on the card's most recent line. 0 if none.
+          Tick "Not offered" for a vaccine the facility doesn't give.</div>
+        <div class="doses" id="doses"></div>
+        <div class="q">Looking at the card and asking the health worker: which vaccines had a stockout in the last 3 months?</div>
+        <div class="chips" id="stockouts"></div>
+        <div id="reqBox" class="hidden">
+          <div class="q">Has the facility asked the LIO or State for resupply?</div>
+          <div class="choice" data-name="requisition"><button type="button" data-v="Yes">Yes</button><button type="button" data-v="No">No</button></div>
+        </div>
+      </div>
+
+      <div id="outreach" class="hidden">
+        <h2>Outreach plan</h2>
+        <p class="sub">Ask the health worker to show the outreach plan and calendar.</p>
+        <label for="nPlanned">How many outreach sessions does the facility plan for the next two months?</label>
+        <input type="number" id="nPlanned" min="0" max="20" inputmode="numeric">
+        <div id="sessions"></div>
+      </div>
+
+      <div id="sqlns" class="hidden">
+        <h2>SQ-LNS stock card</h2>
+        <p class="sub">Ask to see the SQ-LNS stock card. All for <b id="sqMonth"></b>, the past complete month, in the unit on the card.</p>
+        <div class="q">Unit on the stock card</div>
+        <div class="choice" data-name="unit"><button type="button" data-v="Sachets">Sachets</button><button type="button" data-v="Cartons">Cartons</button></div>
+        <label for="sqOpen">Opening balance at the start of the month</label><input type="number" id="sqOpen" min="0" inputmode="numeric">
+        <label for="sqRec">Received in the month</label><input type="number" id="sqRec" min="0" inputmode="numeric">
+        <label for="sqDist">Distributed in the month</label><input type="number" id="sqDist" min="0" inputmode="numeric">
+        <label for="sqClose">Closing balance at the end of the month</label><input type="number" id="sqClose" min="0" inputmode="numeric">
+        <div id="sqCheck" class="msg hidden"></div>
+        <label for="sqDays">Days in the month with no SQ-LNS in stock</label><input type="number" id="sqDays" min="0" max="31" inputmode="numeric">
+        <div class="hint">0 to 31.</div>
+      </div>
+
+      <h2>Check and send</h2>
+      <div class="summary" id="summary"></div>
+      <div id="problem" class="msg err hidden"></div>
+      <button type="submit" class="send" id="sendBtn">Send</button>
+    </div>
+  </form>
+  <div id="done" class="msg ok hidden"></div>
+</div>
+
+<script src="queue.js"></script>
+<script>
+(function () {
+  const VACCINES = [['bcg', 'BCG'], ['hepb', 'Hep B'], ['opv', 'OPV'], ['ipv', 'IPV'], ['penta', 'Penta'], ['pcv', 'PCV'],
+    ['rota', 'Rota'], ['mr', 'MR'], ['vita', 'Vitamin A'], ['yf', 'Yellow fever'], ['malaria', 'Malaria']];
+  const SQLNS_FROM = 2027;  // SQ-LNS stock is asked from January 2027
+  const OUTBOX = 'meeting-outbox', FACS = 'meeting-facilities', LAST = 'meeting-last-place';
+  const $ = id => document.getElementById(id);
+  const store = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} };
+  const load = k => { try { return JSON.parse(localStorage.getItem(k)); } catch (e) { return null; } };
+  const show = (el, on) => el.classList.toggle('hidden', !on);
+  const pick = {};  // answers from the button groups
+  let facilities = null;
+
+  const now = new Date();
+  const todayIso = new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+  $('today').textContent = now.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
+  const prev = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  $('sqMonth').textContent = prev.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
+
+  // ---- doses and stockout chips ----
+  $('doses').innerHTML = VACCINES.map(v =>
+    `<span>${v[1]}</span><input type="number" min="0" inputmode="numeric" id="d_${v[0]}">` +
+    `<label class="na"><input type="checkbox" id="na_${v[0]}"> Not offered</label>`).join('');
+  VACCINES.forEach(v => $('na_' + v[0]).addEventListener('change', e => {
+    $('d_' + v[0]).disabled = e.target.checked; if (e.target.checked) $('d_' + v[0]).value = ''; refresh();
+  }));
+  $('stockouts').innerHTML = VACCINES.map(v => `<button type="button" data-v="${v[1]}">${v[1]}</button>`).join('') +
+    '<button type="button" data-v="None">None</button>';
+  $('stockouts').addEventListener('click', e => {
+    const b = e.target.closest('button'); if (!b) return;
+    if (b.dataset.v === 'None') {
+      const on = !b.classList.contains('on');
+      $('stockouts').querySelectorAll('button').forEach(x => x.classList.remove('on'));
+      b.classList.toggle('on', on);
+    } else {
+      $('stockouts').querySelector('[data-v="None"]').classList.remove('on');
+      b.classList.toggle('on');
+    }
+    refresh();
+  });
+  const stockouts = () => [...$('stockouts').querySelectorAll('button.on')].map(b => b.dataset.v);
+
+  // ---- single-choice button groups ----
+  document.querySelectorAll('.choice').forEach(g => g.addEventListener('click', e => {
+    const b = e.target.closest('button'); if (!b) return;
+    g.querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b));
+    pick[g.dataset.name] = b.dataset.v;
+    refresh();
+  }));
+
+  // ---- facility list ----
+  function fillStates() {
+    const s = $('state');
+    s.innerHTML = '<option value="">Pick a state</option>' +
+      Object.keys(facilities).sort().map(k => `<option>${k}</option>`).join('');
+    const last = load(LAST);
+    if (last && facilities[last.state]) { s.value = last.state; fillLgas(); if (facilities[last.state][last.lga]) { $('lga').value = last.lga; fillFacs(); } }
+  }
+  function fillLgas() {
+    const st = facilities[$('state').value];
+    $('lga').disabled = !st;
+    $('lga').innerHTML = st ? '<option value="">Pick an LGA</option>' + Object.keys(st).sort().map(k => `<option>${k}</option>`).join('')
+                            : '<option value="">Pick a state first</option>';
+    fillFacs();
+  }
+  function fillFacs() {
+    const list = (facilities[$('state').value] || {})[$('lga').value];
+    $('fac').disabled = !list;
+    $('fac').innerHTML = list ? '<option value="">Pick a facility</option>' + list.map(f => `<option value="${f.id}">${f.name}</option>`).join('')
+                              : '<option value="">Pick an LGA first</option>';
+    facChanged();
+  }
+  const facility = () => ((facilities[$('state').value] || {})[$('lga').value] || []).find(f => f.id === $('fac').value);
+  $('state').addEventListener('change', fillLgas);
+  $('lga').addEventListener('change', fillFacs);
+  $('fac').addEventListener('change', facChanged);
+
+  function facChanged() {
+    const f = facility();
+    show($('facInfo'), !!f);
+    show($('body'), !!f);
+    show($('done'), false);
+    if (!f) return;
+    $('facInfo').innerHTML = `Facility ID <b>${f.id}</b> · Arm <b>${f.arm}</b>`;
+    store(LAST, { state: $('state').value, lga: $('lga').value });
+    renderSessions();
+    refresh();
+  }
+
+  const cached = load(FACS);
+  if (cached) { facilities = cached; fillStates(); }
+  RU.api({ action: 'getMeetingFacilities' }).then(data => {
+    store(FACS, data);
+    if (!facilities) { facilities = data; fillStates(); } else facilities = data;
+  }).catch(() => {
+    if (!facilities) $('state').innerHTML = '<option value="">No signal: open this page once with signal to load the facility list</option>';
+  });
+
+  // ---- outreach sessions ----
+  function renderSessions() {
+    const f = facility();
+    const n = Math.max(0, Math.min(20, parseInt($('nPlanned').value, 10) || 0));
+    const box = $('sessions');
+    const kept = [...box.querySelectorAll('.session')].map(s => ({
+      date: s.querySelector('input[type=date]').value, community: s.querySelector('select').value,
+      other: s.querySelector('input[type=text]').value }));
+    const opts = (f ? f.communities : []).map(c => `<option>${c.replace(/</g, '&lt;')}</option>`).join('');
+    box.innerHTML = '';
+    for (let i = 0; i < n; i++) {
+      const d = document.createElement('div');
+      d.className = 'session';
+      d.innerHTML = `<div class="t">Session ${i + 1}</div><label>Planned date</label><input type="date">
+        <label>Community to be visited</label><select><option value="">Pick a community</option>${opts}<option value="Other">Other, specify</option></select>
+        <input type="text" class="hidden" placeholder="Which community?" style="margin-top:6px">`;
+      const sel = d.querySelector('select'), other = d.querySelector('input[type=text]');
+      sel.addEventListener('change', () => { show(other, sel.value === 'Other'); refresh(); });
+      d.querySelectorAll('input').forEach(x => x.addEventListener('input', refresh));
+      if (kept[i]) { d.querySelector('input[type=date]').value = kept[i].date; sel.value = kept[i].community; other.value = kept[i].other; show(other, sel.value === 'Other'); }
+      box.appendChild(d);
+    }
+  }
+  $('nPlanned').addEventListener('input', () => { renderSessions(); refresh(); });
+  ['lastEntry', 'reasonOther', 'sqOpen', 'sqRec', 'sqDist', 'sqClose', 'sqDays'].forEach(id => $(id).addEventListener('input', refresh));
+  VACCINES.forEach(v => $('d_' + v[0]).addEventListener('input', refresh));
+
+  // ---- what applies, the summary and the problems ----
+  const isOutreach = f => f && f.arm === 'R+A+Outreach';
+  const isSqlns = f => f && f.arm === 'R+A+SQLNS' && now.getFullYear() >= SQLNS_FROM;
+  const val = id => $(id).value.trim();
+  const whole = v => /^\d+$/.test(v);
+
+  function collect() {
+    const f = facility(), card = pick.card;
+    const form = { id: f.id, date: todayIso, card: card };
+    if (card === 'No') { form.reason = pick.reason; form.reason_other = val('reasonOther'); }
+    if (card === 'Yes') {
+      form.last_entry = val('lastEntry');
+      form.doses = {};
+      VACCINES.forEach(v => { form.doses[v[0]] = $('na_' + v[0]).checked ? 'NA' : val('d_' + v[0]); });
+      form.stockouts = stockouts();
+      form.requisition = pick.requisition;
+    }
+    if (isOutreach(f)) {
+      form.sessions = [...$('sessions').querySelectorAll('.session')].map(s => ({
+        date: s.querySelector('input[type=date]').value, community: s.querySelector('select').value,
+        other: s.querySelector('input[type=text]').value.trim() }));
+    }
+    if (isSqlns(f)) form.sqlns = { unit: pick.unit, open: val('sqOpen'), received: val('sqRec'), distributed: val('sqDist'),
+                                   close: val('sqClose'), days: val('sqDays') };
+    return form;
+  }
+
+  function problems(form) {
+    const p = [];
+    if (!form.card) p.push('Say whether the stock card was brought.');
+    if (form.card === 'No' && !form.reason) p.push('Pick why the stock card was not brought.');
+    if (form.card === 'No' && form.reason === 'Other' && !form.reason_other) p.push('Write why the stock card was not brought.');
+    if (form.card === 'Yes') {
+      if (!form.last_entry) p.push('Enter the date of the latest entry on the stock card.');
+      else if (form.last_entry > todayIso) p.push('The latest entry on the stock card is after today: check the date.');
+      const missing = VACCINES.filter(v => form.doses[v[0]] !== 'NA' && !whole(form.doses[v[0]])).map(v => v[1]);
+      if (missing.length) p.push('Enter doses available now (a whole number, or Not offered) for: ' + missing.join(', ') + '.');
+      if (!form.stockouts.length) p.push('Pick the vaccines with a stockout in the last 3 months, or None.');
+      const hadStockout = form.stockouts.length && form.stockouts[0] !== 'None';
+      if (hadStockout && !form.requisition) p.push('Say whether resupply was requested.');
+    }
+    if (form.sessions !== undefined) {
+      if (!whole(val('nPlanned'))) p.push('Enter how many outreach sessions are planned (0 if none).');
+      form.sessions.forEach((s, i) => {
+        if (!s.date) p.push(`Session ${i + 1}: enter the planned date.`);
+        if (!s.community) p.push(`Session ${i + 1}: pick the community.`);
+        if (s.community === 'Other' && !s.other) p.push(`Session ${i + 1}: write the community's name.`);
+      });
+    }
+    if (form.sqlns) {
+      const s = form.sqlns;
+      if (!s.unit) p.push('Pick the unit on the SQ-LNS stock card.');
+      if (![s.open, s.received, s.distributed, s.close, s.days].every(whole)) p.push('Enter every SQ-LNS number (whole numbers, 0 if none).');
+      else if (Number(s.days) > 31) p.push('SQ-LNS stock-out days must be 0 to 31.');
+    }
+    return p;
+  }
+
+  function refresh() {
+    const f = facility(); if (!f) return;
+    show($('noCard'), pick.card === 'No');
+    show($('card'), pick.card === 'Yes');
+    show($('reasonOther'), pick.reason === 'Other');
+    const so = stockouts();
+    show($('reqBox'), so.length > 0 && so[0] !== 'None');
+    show($('outreach'), isOutreach(f));
+    show($('sqlns'), isSqlns(f));
+    const o = val('sqOpen'), r = val('sqRec'), d = val('sqDist'), c = val('sqClose');
+    if ([o, r, d, c].every(whole)) {
+      const exp = Number(o) + Number(r) - Number(d);
+      const good = exp === Number(c);
+      $('sqCheck').className = 'msg ' + (good ? 'ok' : 'warn');
+      $('sqCheck').textContent = good ? `✓ ${o} + ${r} − ${d} = ${c}` :
+        `Opening + received − distributed should be the closing balance (expected ${exp}). Check the card again. You can still send after checking.`;
+      show($('sqCheck'), true);
+    } else show($('sqCheck'), false);
+
+    const form = collect();
+    const rows = [['Facility', `${f.name} (${f.id})`]];
+    if (form.card === 'No') rows.push(['Stock card', 'Not brought: ' + (form.reason === 'Other' ? (form.reason_other || 'Other') : (form.reason || '…'))]);
+    if (form.card === 'Yes') {
+      rows.push(['Stock card', 'Brought' + (form.last_entry ? ', last entry ' + form.last_entry.split('-').reverse().join('/') : '')]);
+      const zero = VACCINES.filter(v => form.doses[v[0]] === '0').map(v => v[1]);
+      rows.push(['Vaccines at 0', zero.join(', ') || 'None']);
+      rows.push(['Stockouts, 3 months', form.stockouts.join(', ') || '…']);
+    }
+    if (form.sessions) rows.push(['Outreach sessions planned', String(form.sessions.length)]);
+    if (form.sqlns) rows.push(['SQ-LNS closing balance', form.sqlns.close ? form.sqlns.close + ' ' + (form.sqlns.unit || '').toLowerCase() : '…']);
+    $('summary').innerHTML = rows.map(r => `<div><span>${r[0]}</span><span>${r[1].replace(/</g, '&lt;')}</span></div>`).join('');
+    show($('problem'), false);
+  }
+
+  // ---- send, with a queue on this phone for no signal ----
+  function outbox() { return load(OUTBOX) || []; }
+  function showOutbox() {
+    const n = outbox().length;
+    show($('outbox'), n > 0 || refused.length > 0);
+    $('outbox').textContent = (n ? `${n} form${n === 1 ? '' : 's'} saved on this phone, waiting for signal. They send by themselves; keep this page open or come back to it. Don't clear the browser. ` : '') +
+      (refused.length ? 'Not accepted, fill again: ' + refused.join('; ') : '');
+  }
+  let sending = false;
+  const refused = [];
+  async function flush() {
+    if (sending) return;
+    sending = true;
+    try {
+      for (const item of outbox()) {
+        try {
+          await RU.api({ action: 'submitMeeting', form: item.form });
+        } catch (e) {
+          if (!e.server) break;  // no signal: try again later
+          refused.push(item.form.id + ': ' + e.message);  // Apps Script said no: keep the reason, drop the form
+        }
+        store(OUTBOX, outbox().filter(x => x.sid !== item.sid));
+      }
+    } catch (e) { /* storage problem: try again later */ }
+    sending = false;
+    showOutbox();
+  }
+  window.addEventListener('online', flush);
+  setInterval(flush, 60000);
+  showOutbox(); flush();
+
+  $('f').addEventListener('submit', async e => {
+    e.preventDefault();
+    const f = facility(); if (!f) return;
+    const form = collect();
+    const p = problems(form);
+    if (p.length) { $('problem').innerHTML = p.map(x => '• ' + x).join('<br>'); show($('problem'), true); return; }
+    $('sendBtn').disabled = true;
+    const sid = f.id + '_' + Date.now();
+    let msg;
+    try {
+      const data = await RU.api({ action: 'submitMeeting', form: form });
+      msg = `Sent. ${f.name} is in "${data.sheet}".`;
+    } catch (err) {
+      if (err.server) { $('problem').textContent = 'Not sent: ' + err.message; show($('problem'), true); $('sendBtn').disabled = false; return; }
+      store(OUTBOX, outbox().filter(x => x.form.id !== f.id || x.form.date !== form.date).concat([{ sid: sid, form: form }]));
+      showOutbox();
+      msg = `No signal: ${f.name} is saved on this phone and sends by itself when the phone is back online.`;
+    }
+    $('sendBtn').disabled = false;
+    $('done').innerHTML = msg + ' <b>Pick the next facility</b> above (State and LGA stay).';
+    show($('done'), true);
+    // reset the answers for the next facility
+    Object.keys(pick).forEach(k => delete pick[k]);
+    document.querySelectorAll('.choice button, #stockouts button').forEach(b => b.classList.remove('on'));
+    $('f').querySelectorAll('input').forEach(i => { if (i.type === 'checkbox') i.checked = false; else i.value = ''; i.disabled = false; });
+    $('sessions').innerHTML = '';
+    $('fac').value = '';
+    show($('facInfo'), false); show($('body'), false);
+    window.scrollTo(0, 0);
+  });
+
+  if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+})();
+</script>
+</body>
+</html>
