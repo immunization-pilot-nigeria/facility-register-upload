@@ -161,29 +161,6 @@
     <h1 id="heading">Register Photo Upload</h1>
 
     <form id="form" novalidate>
-      <label id="typeLabel">What are you uploading?</label>
-      <div id="typePick" class="typePick" role="group" aria-labelledby="typeLabel">
-        <button type="button" data-type="register" aria-pressed="false">Child Immunization Register</button>
-        <button type="button" data-type="ambassador" aria-pressed="false">Ambassador Nomination Tool</button>
-      </div>
-
-      <!-- Instructions for each upload type. Only the one picked is shown. -->
-      <div id="instrNone" class="instr">Choose what you are uploading to see the instructions.</div>
-      <div id="instr-register" class="instr hidden">
-        <p>This form is used to collect data on children receiving immunization at the clinic. This information will be used by Evidence Action and the Government to test a reminder program to children's parents for timely follow up vaccination doses.</p>
-        <p><strong>Every <span class="custom-underline">Friday</span>, take both rounds of photos below, then press Upload once.</strong></p>
-        <ol>
-          <li><strong>Left pages, newest first.</strong> Open to the most recent page. Photograph the <strong>left-hand page</strong>, then go <strong>backward</strong> page by page. Stop at a page where every child was born <strong>more than a week ago</strong>. Names, phone numbers and dates of birth must be <strong>clear and readable</strong>: we use them to send reminders.</li>
-          <li><strong>Pages with new entries this week.</strong> Start again at the <strong>most recent page</strong> and go <strong>backward</strong> to the first page. Photograph <strong>both sides of the page together</strong> for every page with new children or new vaccine dates <span class="custom-underline">this week</span>. We use these to check that each child has one line and to measure vaccine uptake.</li>
-        </ol>
-        <p><strong>Take every photo in good light, from directly above, with the page number showing.</strong></p>
-      </div>
-      <div id="instr-ambassador" class="instr hidden">
-        <p>This form is used to collect data on ambassador nominations by caregivers at the immunization clinic. This information will be used by Evidence Action and the Government to identify ambassadors who can spread information about vaccines in communities for timely follow up vaccination doses.</p>
-        <p><strong>Please take photos of ALL pages of the tool and upload them <span class="custom-underline">every Friday</span>.</strong> This should include <strong>both filled and empty pages</strong>.</p>
-        <p>Take the photos <strong>in good light</strong> and <strong>from directly above</strong>, so <strong>all four corners</strong> of the tool are visible.</p>
-      </div>
-
       <label for="facSearch">Search for your facility</label>
       <input id="facSearch" type="search" autocomplete="off" placeholder="Type part of the facility name">
       <div id="facResults" class="hidden" role="listbox" aria-label="Matching facilities"></div>
@@ -205,6 +182,35 @@
       <select id="facility" required disabled>
         <option value="">Select a state first</option>
       </select>
+
+      <label id="typeLabel">What are you uploading?</label>
+      <div id="typePick" class="typePick" role="group" aria-labelledby="typeLabel">
+        <button type="button" data-type="register" aria-pressed="false">Child Immunization Register</button>
+        <button type="button" data-type="ambassador" aria-pressed="false">Ambassador Nomination Tool</button>
+        <button type="button" data-type="sqlns" aria-pressed="false" class="hidden">SQ-LNS Child Register</button>
+      </div>
+
+      <!-- Instructions for each upload type. Only the one picked is shown. -->
+      <div id="instrNone" class="instr">Choose what you are uploading to see the instructions.</div>
+      <div id="instr-register" class="instr hidden">
+        <p>This form is used to collect data on children receiving immunization at the clinic. This information will be used by Evidence Action and the Government to test a reminder program to children's parents for timely follow up vaccination doses.</p>
+        <p><strong>Every <span class="custom-underline">Friday</span>, take both rounds of photos below, then press Upload once.</strong></p>
+        <ol>
+          <li><strong>Left pages, newest first.</strong> Open to the most recent page. Photograph the <strong>left-hand page</strong>, then go <strong>backward</strong> page by page. Stop at a page where every child was born <strong>more than a week ago</strong>. Names, phone numbers and dates of birth must be <strong>clear and readable</strong>: we use them to send reminders.</li>
+          <li><strong>Pages with new entries this week.</strong> Start again at the <strong>most recent page</strong> and go <strong>backward</strong> to the first page. Photograph <strong>both sides of the page together</strong> for every page with new children or new vaccine dates <span class="custom-underline">this week</span>. We use these to check that each child has one line and to measure vaccine uptake.</li>
+        </ol>
+        <p><strong>Take every photo in good light, from directly above, with the page number showing.</strong></p>
+      </div>
+      <div id="instr-sqlns" class="instr hidden">
+        <p>This form is used to collect data on children receiving SQ-LNS at the clinic. This information will be used by Evidence Action and the Government to track SQ-LNS enrollment and monthly pickups.</p>
+        <p><strong>At the end of <span class="custom-underline">every month</span>, after filling in the monthly totals, photograph every page of the SQ-LNS Child Register for children still in their 6 months of SQ-LNS.</strong> Take each page again every month, even if you photographed it before.</p>
+        <p>Take the photos <strong>in good light</strong> and <strong>from directly above</strong>, with the <strong>enrollment month at the top</strong> and every row showing. If a month runs onto a second page, write "Pg 2" at the top of that page.</p>
+      </div>
+      <div id="instr-ambassador" class="instr hidden">
+        <p>This form is used to collect data on ambassador nominations by caregivers at the immunization clinic. This information will be used by Evidence Action and the Government to identify ambassadors who can spread information about vaccines in communities for timely follow up vaccination doses.</p>
+        <p><strong>Please take photos of ALL pages of the tool and upload them <span class="custom-underline">every Friday</span>.</strong> This should include <strong>both filled and empty pages</strong>.</p>
+        <p>Take the photos <strong>in good light</strong> and <strong>from directly above</strong>, so <strong>all four corners</strong> of the tool are visible.</p>
+      </div>
 
       <label for="phone">Your phone number</label>
       <input id="phone" type="tel" inputmode="numeric" autocomplete="tel" maxlength="11" placeholder="08031234567" required>
@@ -277,8 +283,11 @@
     const INSTALL_KEY = 'ru-install-dismissed';
     const TYPES = {
       register: 'Child Immunization Register Upload',
-      ambassador: 'Ambassador Nomination Tool Upload'
+      ambassador: 'Ambassador Nomination Tool Upload',
+      sqlns: 'SQ-LNS Child Register Upload'
     };
+    // Upload types only some arms see (Apps Script refuses the rest too). The others are for every facility.
+    const TYPE_ARMS = { sqlns: ['R+A+SQLNS'] };
 
     const $ = id => document.getElementById(id);
     const form = $('form'), submitBtn = $('submitBtn');
@@ -292,7 +301,7 @@
     let facilities = {};
     let photos = [];           // photos added but not yet saved: [{ key, dataUrl }]
     let nextKey = 1;
-    let docType = '';          // 'register' or 'ambassador'; picked for each batch, never remembered
+    let docType = '';          // 'register', 'ambassador' or 'sqlns'; picked for each batch, never remembered
     let listLoaded = false;
     let saving = false;
     let sending = false;
@@ -476,6 +485,7 @@
       }
       fillSelect(facSel, list, placeholder);
       facSel.disabled = !list.length;
+      updateTypes();
     }
 
     function findFacility(id) {
@@ -498,7 +508,19 @@
       choiceMade();
     }
 
+    /** Show only the upload types this facility's arm may send; clear a pick it may not send. */
+    function updateTypes() {
+      const hit = facSel.value ? findFacility(facSel.value) : null;
+      const arm = hit ? hit.f.arm : '';
+      typePick.querySelectorAll('button').forEach(b => {
+        const arms = TYPE_ARMS[b.dataset.type];
+        b.classList.toggle('hidden', !!arms && !arms.includes(arm));
+      });
+      if (docType && TYPE_ARMS[docType] && !TYPE_ARMS[docType].includes(arm)) setType('');
+    }
+
     function choiceMade() {
+      updateTypes();
       if (stateSel.value && facSel.value) {
         store(LAST_KEY, { state: stateSel.value, facilityId: facSel.value });
         if (statusEl.dataset.missing) { setStatus(''); delete statusEl.dataset.missing; }

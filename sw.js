@@ -7,7 +7,7 @@
  */
 importScripts('queue.js');
 
-const CACHE = 'register-upload-shell-v3';
+const CACHE = 'register-upload-shell-v4';
 const SHELL = ['./', './index.html', './meeting.html', './queue.js', './manifest.webmanifest', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', event => {
